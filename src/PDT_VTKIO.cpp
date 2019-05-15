@@ -49,8 +49,8 @@ bool vtk_grfinalrecon( vxlgrd const & ggrd, vxlgrd const & lgrd,
 {
 	//writes center positions of cubic voxel specified by lgrd with piecewise mark data m1 and m2 per voxel
 	if (gid.size() != lgrd.nxyz || uipid.size() != lgrd.nxyz || sdfbuf1.size() != lgrd.nxyz ||  sdfbuf2.size() != lgrd.nxyz ) {
-cout << "Inconsistent length of mark data per voxel lgrd.nxyz " << lgrd.nxyz << " sizes() gid/uipid/sdf1/sdf2 ";
-cout << gid.size() << ";" << uipid.size() << ";" << sdfbuf1.size() << ";" << sdfbuf2.size() << endl;
+		cerr << "Inconsistent length of mark data per voxel lgrd.nxyz " << lgrd.nxyz << " sizes() gid/uipid/sdf1/sdf2 ";
+		cerr << gid.size() << ";" << uipid.size() << ";" << sdfbuf1.size() << ";" << sdfbuf2.size() << "\n";
 		return false;
 	}
 
@@ -99,13 +99,13 @@ cout << gid.size() << ";" << uipid.size() << ";" << sdfbuf1.size() << ";" << sdf
 		for (size_t i = 0; i < nvertices; ++i) {
 			vtk << gid[i] << "\n";
 		}
-		vtk << endl;
+		vtk << "\n";
 
 		vtk << "UniqueIPID 1 " << nvertices << " double\n"; //MK::this is a hack, unsigned int is unknown type...
 		for (size_t i = 0; i < nvertices; ++i) {
 			vtk << uipid[i] << "\n";
 		}
-		vtk << endl;
+		vtk << "\n";
 
 #ifdef SINGLE_PRECISION
 		vtk << "SDFinit 1 " << nvertices << " float\n";
@@ -115,7 +115,7 @@ cout << gid.size() << ";" << uipid.size() << ";" << sdfbuf1.size() << ";" << sdf
 		for (size_t i = 0; i < nvertices; ++i) {
 			vtk << sdfbuf1[i] << "\n";
 		}
-		vtk << endl;
+		vtk << "\n";
 
 #ifdef SINGLE_PRECISION
 		vtk << "SDFfsm 1 " << nvertices << " float\n";
@@ -125,14 +125,14 @@ cout << gid.size() << ";" << uipid.size() << ";" << sdfbuf1.size() << ";" << sdf
 		for (size_t i = 0; i < nvertices; ++i) {
 			vtk << sdfbuf2[i] << "\n";
 		}
-		vtk << endl;
+		vtk << "\n";
 
 		vtk.flush();
 		vtk.close();
 		return true;
 	}
 	else {
-cout << "Unable to write voxel-related data of grain " << id << " to VTK file" << endl;
+		cerr << "Unable to write voxel-related data of grain " << id << " to VTK file" << "\n";
 		return false;
 	}
 }
@@ -145,7 +145,7 @@ bool vtk_vxlgrdm2( vxlgrd const & ggrd, vxlgrd const & lgrd,
 {
 	//writes center positions of cubic voxel specified by lgrd with piecewise mark data m1 and m2 per voxel
 	if (m1.size() != lgrd.nxyz || m2.size() != lgrd.nxyz) {
-cout << "Missing mark data per voxel lgrd.nxyz " << lgrd.nxyz << " m1.size() " << m1.size() << " m2.size() " << m2.size() << endl;
+		cerr << "Missing mark data per voxel lgrd.nxyz " << lgrd.nxyz << " m1.size() " << m1.size() << " m2.size() " << m2.size() << "\n";
 		return false;
 	}
 
@@ -193,7 +193,7 @@ cout << "Missing mark data per voxel lgrd.nxyz " << lgrd.nxyz << " m1.size() " <
 		for (size_t i = 0; i < nvertices; ++i) {
 			vtk << m1.at(i) << "\n";
 		}
-		vtk << endl;
+		vtk << "\n";
 
 #ifdef SINGLE_PRECISION
 		vtk << m2what << " 1 " << nvertices << " float\n";
@@ -203,14 +203,14 @@ cout << "Missing mark data per voxel lgrd.nxyz " << lgrd.nxyz << " m1.size() " <
 		for (size_t i = 0; i < nvertices; ++i) {
 			vtk << m2.at(i) << "\n";
 		}
-		vtk << endl;
+		vtk << "\n";
 
 		vtk.flush();
 		vtk.close();
 		return true;
 	}
 	else {
-cout << "Unable to write voxel with content to VTK file" << endl;
+		cerr << "Unable to write voxel with content to VTK file" << "\n";
 		return false;
 	}
 }
@@ -251,14 +251,14 @@ bool vtk_p3d(	vector<p3d> const & pp3, const unsigned int id,
 		for (size_t i = 0; i < nvertices; ++i) {
 			vtk << id << "\n";
 		}
-		vtk << endl;
+		vtk << "\n";
 
 		vtk.flush();
 		vtk.close();
 		return true;
 	}
 	else {
-cout << "Unable to write integration point positions to VTK file" << endl;
+		cerr << "Unable to write integration point positions to VTK file" << "\n";
 		return false;
 	}
 }
@@ -299,20 +299,20 @@ bool vtk_p3dm1(	vector<p3dm1> const & pp3, const unsigned int id,
 		for (size_t i = 0; i < nvertices; ++i) {
 			vtk << pp3[i].m1 << "\n";
 		}
-		vtk << endl;
+		vtk << "\n";
 
 		vtk << "GrainID 1 " << nvertices << " int\n"; //double\n";
 		for (size_t i = 0; i < nvertices; ++i) {
 			vtk << id << "\n";
 		}
-		vtk << endl;
+		vtk << "\n";
 
 		vtk.flush();
 		vtk.close();
 		return true;
 	}
 	else {
-cout << "Unable to write integration point positions to VTK file" << endl;
+		cerr << "Unable to write integration point positions to VTK file" << "\n";
 		return false;
 	}
 }
@@ -325,7 +325,7 @@ bool vtk_p3dm1( vector<p3d> const & pp3, vector<unsigned int> const & m1,
 	string fn = "DAMASKPDT.SimID." + to_string(Settings::SimID) + ".Incr." + to_string(increment) + "." + what + ".vtk";
 
 	if ( pp3.size() != m1.size() ) {
-cout << "Input datasets dissimilar in length" << endl;
+		cerr << "Input datasets dissimilar in length" << "\n";
 		return false;
 	}
 
@@ -358,14 +358,14 @@ cout << "Input datasets dissimilar in length" << endl;
 		for (size_t i = 0; i < nvertices; ++i) {
 			vtk << m1[i] << "\n";
 		}
-		vtk << endl;
+		vtk << "\n";
 
 		vtk.flush();
 		vtk.close();
 		return true;
 	}
 	else {
-cout << "Unable to write integration point positions and marks to VTK file" << endl;
+		cerr << "Unable to write integration point positions and marks to VTK file" << "\n";
 		return false;
 	}
 }
@@ -383,7 +383,7 @@ bool vtk_bvh_p3dm1( vector<vector<p3dm2>*> const & pp3, const unsigned int incre
 			continue;
 		}
 		//not continued ?
-cout << "Input datasets pp3 bucket " << i << " at least is empty" << endl;
+		cerr << "Input datasets pp3 bucket " << i << " at least is empty" << "\n";
 		return false;
 	}
 
@@ -425,7 +425,7 @@ cout << "Input datasets pp3 bucket " << i << " at least is empty" << endl;
 				}
 			}
 		}
-		vtk << endl;
+		vtk << "\n";
 
 		vtk << "UIPMark 1 " << nvertices << " int\n";
 		for(size_t b = 0; b < pp3.size(); ++b) {
@@ -436,14 +436,14 @@ cout << "Input datasets pp3 bucket " << i << " at least is empty" << endl;
 				}
 			}
 		}
-		vtk << endl;
+		vtk << "\n";
 
 		vtk.flush();
 		vtk.close();
 		return true;
 	}
 	else {
-cout << "Unable to write RVE27 points and binIDs to VTK file" << endl;
+		cerr << "Unable to write RVE27 points and binIDs to VTK file" << "\n";
 		return false;
 	}
 }
@@ -474,7 +474,7 @@ bool vtk_p3dm3( 	vector<vector<p3d>*> const & xyz,
 			}
 			else {
 				//##MK::DEBUG
-cout << "Bin length " << b << " is inconsistent!" << endl;
+				cerr << "Bin length " << b << " is inconsistent!" << "\n";
 				return false;
 			}
 		} //check consistency for all bins
@@ -521,7 +521,7 @@ cout << "Bin length " << b << " is inconsistent!" << endl;
 					vtk << b << "\n";
 				}
 			}
-			vtk << endl;
+			vtk << "\n";
 
 			vtk << "IP_GLOBALID 1 " << nvertices << " int\n"; //##MK::coming from uint...
 			for (size_t b = 0; b < m.size(); ++b) {
@@ -529,7 +529,7 @@ cout << "Bin length " << b << " is inconsistent!" << endl;
 					vtk << static_cast<int>(m.at(b)->at(i)) << "\n";
 				}
 			}
-			vtk << endl;
+			vtk << "\n";
 
 			vtk << "BVH_MOOREPERIMG 1 " << nvertices << " int\n";
 			for (size_t b = 0; b < m.size(); ++b) {
@@ -538,18 +538,18 @@ cout << "Bin length " << b << " is inconsistent!" << endl;
 				}
 			}
 
-			//vtk << endl;
+			//vtk << "\n";
 			vtk.flush();
 			vtk.close();
 			return true;
 		}
 		else {
-cout << "Unable to write integration point positions to VTK file" << endl;
+			cerr << "Unable to write integration point positions to VTK file" << "\n";
 			return false;
 		}
 	}
 	else {
-cout << "Input data containers have dissimilar number of points or marks" << endl;
+		cerr << "Input data containers have dissimilar number of points or marks" << "\n";
 		return false;
 	}
 }
@@ -588,7 +588,7 @@ bool vtk_nbhd3d( vector<p3d> const & p,
 			for (size_t i = 0; i < nvertices; ++i) {
 				vtk << p.at(i).x << " " << p.at(i).y << " " << p.at(i).z << "\n";
 			}
-			vtk << endl;
+			vtk << "\n";
 			//add point identifier
 			vtk << "VERTICES " << nvertices << " " << 2*nvertices << "\n";
 			for ( size_t j = 0; j < nvertices; j++ ) {
@@ -598,19 +598,19 @@ bool vtk_nbhd3d( vector<p3d> const & p,
 
 			//##MK::check formating of field data
 
-			vtk << "POINT_DATA " << nvertices << endl;
+			vtk << "POINT_DATA " << nvertices << "\n";
 			vtk << "FIELD FieldData 4\n";
 			vtk << "IntegrationPointID 1 " << nvertices << " int\n";
 			for (size_t i = 0; i < nvertices; ++i) {
 				vtk << pid.at(i) << "\n";
 			}
-			vtk << endl;
+			vtk << "\n";
 
 			vtk << "Distance 1 " << nvertices << " double\n";
 			for (size_t i = 0; i < nvertices; ++i) {
 				vtk << dist.at(i) << "\n";
 			}
-			vtk << endl;
+			vtk << "\n";
 
 			vtk << "DisoriAngle 1 " << nvertices << " double\n";
 			for (size_t i = 0; i < nvertices; ++i) {
@@ -619,26 +619,26 @@ bool vtk_nbhd3d( vector<p3d> const & p,
 				else
 					vtk << 360.0 << "\n"; //MK::prevent corrupting VTK file data formats
 			}
-			vtk << endl;
+			vtk << "\n";
 
 			vtk << "TextureID 1 " << nvertices << " int\n";
 			for (size_t i = 0; i < nvertices; ++i) {
 				vtk << textureid.at(i) << "\n";
 			}
-			vtk << endl;
+			vtk << "\n";
 
-			//vtk << endl;
+			//vtk << "\n";
 			vtk.flush();
 			vtk.close();
 			return true;
 		}
 		else {
-cout << "Unable to write higher order neighbor environment to VTK file" << endl;
+			cerr << "Unable to write higher order neighbor environment to VTK file" << "\n";
 			return false;
 		}
 	}
 	else {
-cout << "Input data containers have dissimilar number of entries" << endl;
+		cerr << "Input data containers have dissimilar number of entries" << "\n";
 		return false;
 	}
 }
@@ -672,7 +672,7 @@ bool vtk_p3dm3( vector<p3d> const & p,
 			for (size_t i = 0; i < nvertices; ++i) {
 				vtk << p.at(i).x << " " << p.at(i).y << " " << p.at(i).z << "\n";
 			}
-			vtk << endl;
+			vtk << "\n";
 			//add point identifier
 			vtk << "VERTICES " << nvertices << " " << 2*nvertices << "\n";
 			for ( size_t j = 0; j < nvertices; j++ ) {
@@ -682,26 +682,26 @@ bool vtk_p3dm3( vector<p3d> const & p,
 
 			//##MK::check formating of field data
 
-			vtk << "POINT_DATA " << nvertices << endl;
+			vtk << "POINT_DATA " << nvertices << "\n";
 			vtk << "FIELD FieldData 1\n";
 			vtk << "TextureID 1 " << nvertices << " int\n";
 			for (size_t i = 0; i < nvertices; ++i) {
 				vtk << textureid.at(i) << "\n";
 			}
-			vtk << endl;
+			vtk << "\n";
 
-			//vtk << endl;
+			//vtk << "\n";
 			vtk.flush();
 			vtk.close();
 			return true;
 		}
 		else {
-cout << "Unable to write integration point grid texture ID to VTK file" << endl;
+			cerr << "Unable to write integration point grid texture ID to VTK file" << "\n";
 			return false;
 		}
 	}
 	else {
-cout << "Input data containers have dissimilar number of entries" << endl;
+		cerr << "Input data containers have dissimilar number of entries" << "\n";
 		return false;
 	}
 }
@@ -735,7 +735,7 @@ bool vtk_gp3d( vector<p3d> const & p,
 			for (size_t i = 0; i < nvertices; ++i) {
 				vtk << p.at(i).x << " " << p.at(i).y << " " << p.at(i).z << "\n";
 			}
-			vtk << endl;
+			vtk << "\n";
 			//add point identifier
 			vtk << "VERTICES " << nvertices << " " << 2*nvertices << "\n";
 			for ( size_t j = 0; j < nvertices; j++ ) {
@@ -745,26 +745,26 @@ bool vtk_gp3d( vector<p3d> const & p,
 
 			//##MK::check formating of field data
 
-			vtk << "POINT_DATA " << nvertices << endl;
+			vtk << "POINT_DATA " << nvertices << "\n";
 			vtk << "FIELD FieldData 1\n";
 			vtk << "GrainID 1 " << nvertices << " int\n";
 			for (size_t i = 0; i < nvertices; ++i) {
 				vtk << grainid.at(i) << "\n";
 			}
-			vtk << endl;
+			vtk << "\n";
 
-			//vtk << endl;
+			//vtk << "\n";
 			vtk.flush();
 			vtk.close();
 			return true;
 		}
 		else {
-cout << "Unable to write integration point grid grain ID to VTK file" << endl;
+			cerr << "Unable to write integration point grid grain ID to VTK file" << "\n";
 			return false;
 		}
 	}
 	else {
-cout << "Input data containers have dissimilar number of entries" << endl;
+		cerr << "Input data containers have dissimilar number of entries" << "\n";
 		return false;
 	}
 }

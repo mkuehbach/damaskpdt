@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Parameters>
+	<!--DATASET ESSENTIALS-->
+	<AnalysisMode>0</AnalysisMode>
+	<!--only 0 currently-->
+	<SpectralOutFilename>100g75x75x75_03_compressionZ_03</SpectralOutFilename>
+	<!--optional: can also be passed through command line to improve batch processability-->
+	<IncrementFirst>0</IncrementFirst>
+	<IncrementOffset>1</IncrementOffset>
+	<IncrementLast>0</IncrementLast>
+	<!--processing [First, +Offset, Last] if they exist automatic detection of spectralOut content-->
+
+	<!--WHICH TASKS TO DO-->
+	<!--if set to 1 task is processed-->
+	<AnalyzeFlowCurve>0</AnalyzeFlowCurve>
+	<AnalyzeAddStrainTensors>1</AnalyzeAddStrainTensors>
+	<AnalyzeAddCauchy>0</AnalyzeAddCauchy>
+	<AnalyzeAddVonMises>0</AnalyzeAddVonMises>
+	<AnalyzeAddDisplacements>1</AnalyzeAddDisplacements>
+	<AnalyzeStateVarSpatialDistr>1</AnalyzeStateVarSpatialDistr>
+	<AnalyzeReconstructGrains>1</AnalyzeReconstructGrains>
+		
+	<!--COMMAND LINE SWITCH OPTIONS FOR ABOVE TASKS-->
+	<WhichStrainTensors>RightGreen</WhichStrainTensors>
+	<WhichRVEAvgQuantities>F;Fe;Fp;P;RightGreen;Cauchy</WhichRVEAvgQuantities>
+	<!--accepts currently a list of semicolon-separated options, e.g. RightGreen;LeftBiot will output both right Green strain and left Biot strain tensor-->
+	
+
+	<GrainReconModel>0</GrainReconModel>
+	<!--0 Louvain community detection based--> 
+	<!--1 take texture id be careful latter method requires to have same number of texture components than initial grains-->
+	<SpatialDistrThrshldModel>2</SpatialDistrThrshldModel>
+	<!--according to which physical model to evaluate critical distance to obstacle for state variable value accumulation-->
+	<!--0 - default, distance is computed as distance to closest nearby unique ip with disorientation angle larger threshold-->
+	<!--1 - distance is the signed distance from the boundary of the grain in which the ip is located-->
+	<!--2 - distance is the normal distance to the contour hull of a Voronoi cell complex about the matpoints with same grain id-->
+	<ThrshldAgainstDefConfiguration>1</ThrshldAgainstDefConfiguration>
+	<!-- if 0 do not compute deformation induced displacements and instead characterize against undeformed configuration-->
+
+	<!--TASK SPECIFIC-->
+	<!--h 1 over RVE discretization longest edge length-->
+	<KernelRadius>0.1</KernelRadius>
+	<!--10 % 13px-->
+	<CriticalDisoriAngle>15.0</CriticalDisoriAngle>
+	<!--used in SpatialDistrThrshldModel 0 to thresholding disorientation angle to neighboring uip-->
+	<CommDetectionDisoriAngleWeighting>75.0</CommDetectionDisoriAngleWeighting>
+	<!--prefactor in the exponential of the hierarchical community detection algorithm to assign the ip node edges weight scaling with the proximity in SO3-->
+	<CommDetectionDistanceWeighting>1.0</CommDetectionDistanceWeighting>
+	<!--prefactor in the exponential of the hierarchical community detection algorithm to assign the ip node edges weight scaling with the ip to ip distance CURRENTLY not considered-->
+	<GrainReconInspectionRadius>0.03</GrainReconInspectionRadius>
+	<!--2h-->
+	<!--used to prepare the hierarchical clustering grain detection specifically to identify which nodes of an uip to consider hence it is a spatial cutoff radius-->
+	<GrainReconLouvainPrecision>1.0e-2</GrainReconLouvainPrecision>
+	<!--DEBUG interpreted as the fraction of for each aggregation pass the quality improvement of the first iteration may drop before initiating new aggregation level controlling the amount of iterative community reassignments per agglomeration pass one per million is default-->
+	<DBScanKernelRadius>0.03</DBScanKernelRadius>
+	<!--sqrt 3 1.5 h-->
+	<!--generalized distance used in DBScan to cluster the periodic grain replica fragments should be reciprocal to number of rve edge ips-->
+	<PVTessKernelRadius>0.02</PVTessKernelRadius>
+	<!--generalized distance used for assigning each voxel the closest of the grainIDs found in kernel-->
+	<PVTessCubeVoxelEdgeLen>6.666666666666e-3</PVTessCubeVoxelEdgeLen>
+	<!--0.5 h-->
+	<!--defines the generalized distance length of a voxel to mesh the grains-->
+	<!-- half the original grid spacing should be half of the fraction a single DAMASK cell shares along the domain edge ie half one over number of cells along edge-->
+	<PVTessGuardZoneEdgeLen>3</PVTessGuardZoneEdgeLen>
+	<!--defines the extend of the voxel guard zone about each reconstructed grain in voxel-->
+	
+	<VoroTessContourGuardEdgeLen>0.08</VoroTessContourGuardEdgeLen>
+	<!--5-6 h-->
+	<!--defines in guard zone about the RVE27 point cloud to every ROI of each grain with which to compute the voronoi tess for contour-->
+
+	<!--VISUALIZATION FOR DEBUGGING AND PLOTTING-->
+	<VisIPGridWithTextureID>1</VisIPGridWithTextureID>
+	<VisIPGridWithGrainID>1</VisIPGridWithGrainID>
+	<VisIPGridWithPerImages>0</VisIPGridWithPerImages>
+	<!-- switched off if 0 otherwise use current only mode 1-->
+	<VisHigherOrderNeighbor>0</VisHigherOrderNeighbor>
+	<!--switched off if 0, otherwise uint32 interpreted as the integration point Fortran indexing for which to plot the neighborhood-->
+	<VisPeriodicReplicaIPs>0</VisPeriodicReplicaIPs>
+	<!--if set to 0 switched off, else uint32 interpreted as the grainID Fortran indexing if grain with such ID exists for which all ips with their unique ip assgnment to plot-->
+	<VisDBScanClusterIDs>0</VisDBScanClusterIDs>
+	<!--switched off if 0, otherwise uint32 interpreted as the grainID Fortran indexing for which to show the DBScan result for each ip with their PROVISORIAL cluster ID assgnment-->
+	<VisReconstructedGrain>0</VisReconstructedGrain>
+	<!--switched off if 0, otherwise uint32 interpreted as the grainID Fortran indexing that was reconstructed-->
+	<VisRVE27BVH>0</VisRVE27BVH>
+	<!--BE CAREFUL CAN RESULT IN VERY LARGE FILE purpose is debugging only-->
+	<!--switched off if 0, if 1 writing all first order periodic images of all integration points and their assignment to spatial bins-->
+	<VisGrainLocalVoxelGrid>0</VisGrainLocalVoxelGrid>
+	<!--switched off if 0, otherwise positions of voxelized grain relative to global coordinate system RVE1 and RVE27 with uint32 mark m1 grainID and realsdf mark m2 sdf value-->
+	<VisGrainFinalReconstruction>0</VisGrainFinalReconstruction>
+	<!--if set to 0 show all, else uint32 interpreted as the grainID Fortran indexing if grain with such ID exists for which to output the state values at each voxel including grain ID, unique ID and sdf 1 and 2 values-->
+	
+	
+	<!--Debug and method development-->
+	<VisGrainQuaternionClouds>1</VisGrainQuaternionClouds>
+	<!--if set to larger 0 outputting for each unique ip grain ID and active quaternion for MATLAB based postprocessing of true grain mean orientation and orientation spread and visualization-->
+	<VisLOUVAINGraphEdges>0</VisLOUVAINGraphEdges>
+	<!--if set to larger 0 outputting source destination disori and distance of each LOUVAIN graph edge-->
+	
+	<DebugDouble>75.0</DebugDouble>
+	<DebugUnsignedInt>0</DebugUnsignedInt>
+	<!--utilize to pass quickly constant modification for developing-->
+	
+	
+	<!--OBSOLETE DEPRECATED-->
+	<GrainReconLocalDisoriAngle>15.0</GrainReconLocalDisoriAngle>
+</Parameters>

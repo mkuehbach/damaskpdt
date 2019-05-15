@@ -53,8 +53,9 @@
 using namespace std;
 
 #define VERSION_MAJOR				0
-#define VERSION_MINOR				1
+#define VERSION_MINOR				2
 #define VERSION_REVISION			0
+#define VERSION_BETASTAGE			1
 
 
 //right-handed Cartesian coordinate system with x,y,z

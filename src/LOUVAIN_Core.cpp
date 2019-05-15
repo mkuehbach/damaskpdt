@@ -125,7 +125,7 @@ void Louvain::partition2graph()
 		int deg = (qual->g).nb_neighbors(i);
 		for (int j=0 ; j<deg ; j++) {
 			int neigh = *(p.first+j);
-			cout << renumber[qual->n2c[i]] << " " << renumber[qual->n2c[neigh]] << endl;
+			cout << renumber[qual->n2c[i]] << " " << renumber[qual->n2c[neigh]] << "\n";
 		}
 	}
 }
@@ -143,7 +143,7 @@ void Louvain::display_partition()
 		renumber[i] = end++;
 
 	for (int i=0 ; i < qual->size ; i++)
-		cout << i << " " << renumber[qual->n2c[i]] << endl;
+		cout << i << " " << renumber[qual->n2c[i]] << "\n";
 }
 
 
@@ -316,7 +316,8 @@ bool Louvain::one_level( const int thislevel, vector<lvlogiter> & tctc )
 		double toc = MPI_Wtime();
 		tctc.push_back( lvlogiter( thislevel, nb_moves, cur_qual, new_qual, toc-tic ) );
 
-cout << "Thislevel, NumberOfMoves, new qual-curr qual, eps_impr, new_eps_impr " << thislevel << ";" << nb_moves << "\t\t" << (new_qual - cur_qual) << ";" << eps_impr << "\t\t" << new_eps_impr << endl;
+		cout << "Thislevel, NumberOfMoves, new qual-curr qual, eps_impr, new_eps_impr " << thislevel
+				<< ";" << nb_moves << "\t\t" << (new_qual - cur_qual) << ";" << eps_impr << "\t\t" << new_eps_impr << "\n";
 
 		if ( nb_pass_done == 1) { //MK::store quality improvement of first iteration
 			new_eps_impr = (new_qual - cur_qual) * static_cast<real_louvain>(Settings::GrainReconLouvainPrecision);
@@ -633,7 +634,7 @@ void louvainHdl::execute(vector<lvwtedge> const & these_edges, vector<unsigned i
 	nb_calls++;
 
 	if (verbose)
-		cout << endl << "Computation of communities with the " << q->name << " quality function" << endl << endl;
+		cout << "\n" << "Computation of communities with the " << q->name << " quality function" << "\n" << "\n";
 
 	Louvain c(-1, precision, q);
 	//if (filename_part!=NULL)
@@ -744,12 +745,13 @@ void louvainHdl::get_tctc( Louvain const & fromhere )
 }
 
 
-void louvainHdl::profiling()
+void louvainHdl::profiling( const unsigned int thisrank, const unsigned int thisincr )
 {
 	//##MK::further optimization and convenience tasks: bundle all in one file, incr ID and so forth
 
 	//##MK::suboptimal... one file per rank
-	string fn = "DAMASKPDT.SimID." + to_string(Settings::SimID) + ".LouvainProfilingIterations.csv";
+	string fn = "DAMASKPDT.SimID." + to_string(Settings::SimID) + ".Rank." + to_string(thisrank);
+	fn += ".Incr." + to_string(thisincr) + ".LouvainProfilingIterations.csv";
 
 	ofstream csvlog1;
 	csvlog1.open(fn.c_str(), ofstream::out | ofstream::trunc);
@@ -768,7 +770,8 @@ void louvainHdl::profiling()
 		csvlog1.close();
 	}
 
-	fn = "DAMASKPDT.SimID." + to_string(Settings::SimID) + ".LouvainProfilingLevels.csv";
+	fn = "DAMASKPDT.SimID." + to_string(Settings::SimID) + ".Rank." + to_string(thisrank);
+	fn += ".Incr." + to_string(thisincr) + ".LouvainProfilingLevels.csv";
 	ofstream csvlog2;
 	csvlog2.open(fn.c_str(), ofstream::out | ofstream::trunc);
 	csvlog2 << setprecision(32);

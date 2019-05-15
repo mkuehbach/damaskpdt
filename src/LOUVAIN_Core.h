@@ -128,7 +128,7 @@ public:
 	void init_quality(Graph *g, unsigned short nbc);
 	void execute(vector<lvwtedge> const & these_edges, vector<unsigned int> & uip2comm);
 	void get_tctc( Louvain const & fromhere);
-	void profiling();
+	void profiling( const unsigned int thisrank, const unsigned int thisincr );
 
 	real_louvain precision;
 	real_louvain alpha;

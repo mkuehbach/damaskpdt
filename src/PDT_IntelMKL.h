@@ -43,7 +43,7 @@
 #define __PDT_INTELMKL_H__
 
 
-#include "PDT_VTKIO.h"
+#include "PDT_VoroComposer.h"
 
 
 #define INTELMKL_EXISTENT
@@ -51,7 +51,7 @@
 #ifdef INTELMKL_EXISTENT
 	//utilize Intel MKL library
 	#include "mkl.h"
-	#include "mkl_dfti.h"
+	//#include "mkl_dfti.h"
 #endif
 
 //singular value decomposition of general matrix
@@ -63,8 +63,14 @@ bool inv(t3x3 const &in, t3x3 &out);
 //eigen decomposition
 bool eig(t3x3 const &in, t3x1 &e_real, t3x1 &e_img, t3x3 &evr_real, t3x3 &evr_img);
 
+bool computeEigDecompStretch2Strain( t3x3 const & in, const unsigned int kind, t3x3 & out);
 
 bool computeStrainTensor( t3x3 const & in, t3x3 &eps);
+bool computeStrainTensor2( t3x3 const & in,
+		const unsigned int straintensor,
+		const unsigned int strainkind, t3x3 & eps);
+
+
 
 bool computeCauchy( t3x3 const & F, t3x3 const & P, t3x3 &cauchy);
 

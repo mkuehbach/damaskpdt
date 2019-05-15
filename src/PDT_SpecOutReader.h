@@ -48,10 +48,10 @@
 //#include "PDT_IntelMKL.h"
 //#include "PDT_VTKIO.h"
 //#include "PDT_OriMath.h"
-//#include "LOUVAIN_Core.h"
+#include "LOUVAIN_Core.h"
 
 //##MK::uninclude uper include lower
-#include "PDT_GrainHdl.h"
+//#include "PDT_GrainHdl.h"
 
 class mesh;
 class homog;
@@ -63,6 +63,50 @@ class specOutHeader;
 class grainpool;
 class grGeomHdl;
 class specOutIncr;
+
+
+
+class taskspecifics
+{
+public:
+	taskspecifics(){
+		whichstraintensor = RIGHTCAUCHYGREEN; //the default
+		whichstrainmodel = LNSTRAIN;
+	};
+	~taskspecifics(){};
+	//bookkeeps details what should be done specifically for a task
+
+	string get_strainopts(){
+		string which = "";
+		switch (whichstraintensor) {
+			case RIGHTCAUCHYGREEN:
+				which += "Right";
+				break;
+			case LEFTCAUCHYGREEN:
+				which += "Left";
+				break;
+			default:
+				break;
+		}
+		switch (whichstrainmodel) {
+			case LNSTRAIN:
+				which += "Ln";
+				break;
+			case BIOTSTRAIN:
+				which += "Biot";
+				break;
+			case GREENSTRAIN:
+				which += "Green";
+				break;
+			default:
+				break;
+		}
+		return which;
+	}
+
+	STRAINTENSOR_TYPE whichstraintensor;
+	STRAINVALUE_KIND whichstrainmodel;
+};
 
 
 class dlayoutnode
@@ -103,19 +147,21 @@ public:
 	~specmeta();
 
 	inline unsigned int constitutive_getvalui(const string keyword) {
-		for(size_t kw = 0; constitutive.size(); ++kw) {
-			if (constitutive.at(kw).key.compare(keyword) != 0)
+		for(size_t kw = 0; kw < const_meta.size(); ++kw) {
+			if (const_meta.at(kw).key.compare(keyword) != 0)
 				continue; //most likely not the keyword
 			else
-				return constitutive.at(kw).valui; //0 if formally existent but originated from an invalid_argumen
+				return const_meta.at(kw).valui; //0 if formally existent but originated from an invalid_argumen
 		}
 		return 0;
 	}
 
 	//storage order in these vectors corresponds with spectralOut file layout
-	vector<dlayoutnode> homogenization;
-	vector<dlayoutnode> crystallite;
-	vector<dlayoutnode> constitutive;
+	vector<dlayoutnode> homog_meta;
+	vector<dlayoutnode> cryst_meta;
+	vector<dlayoutnode> const_meta;
+
+	//##MK::introducing a dictionary-based bookkeeping of metadata
 };
 
 
@@ -177,18 +223,22 @@ public:
 	t3x3 compute_average_Fp();
 	t3x3 compute_average_F();
 	t3x3 compute_average_P();
+	real_xyz compute_summate_equalweighting( vector<real_xyz> const & in );
+	t3x3 compute_average_equalweighting( vector<t3x3> const & in );
 
+	//possible content of a spectralOut or HDF5 file from DAMASK
 	vector<unsigned int> PhaseID;
 	vector<unsigned int> TextureID;
 	vector<real_xyz> V;
-	//vector<euler> eul;
-	vector<quat> q;
+	vector<squat> q;
 	vector<t3x3> F;
+	vector<t3x3> Fe;
 	vector<t3x3> Fp;
 	vector<t3x3> P;
 
 	//crystallite-focused results from the postProcessing
-	vector<t3x3> straintensor;
+	vector<t3x3> straintensor1; //##MK::changed for Matthew EPS_RIGHTCAUCHYGREEN_LN_FT
+	vector<t3x3> straintensor2; //##MK::changed for Matthew EPS_RIGHTCAUCHYGREEN_LN_FP
 	vector<t3x3> stresstensor;
 	vector<vMises> scalars;
 
@@ -246,10 +296,8 @@ public:
 	memRegion();
 	~memRegion();
 
-	void db_distr_homogenization( const double* raw, const size_t eipfirst, const size_t eipn );
-	//void db_distr_crystallite( const double* raw, const size_t eipfirst, const size_t eipn );
+	void db_distr_homogenization2( const double* raw, const size_t eipfirst, const size_t eipn );
 	void db_distr_crystallite2( const double* raw, const size_t eipfirst, const size_t eipn );
-	//void db_distr_constitutive( const double* raw, const size_t eipfirst, const size_t eipn );
 	void db_distr_constitutive2( const double* raw, const size_t eipfirst, const size_t eipn );
 
 
@@ -308,6 +356,20 @@ public:
 	//MK::utilize these quantities to get point on flowcurve, i.e. point in equivalent true strain-stress space
 };
 
+
+class rveAverageResults2
+{
+	friend class specOutIncr;
+public:
+	//collective instance carrying RVE average values
+	rveAverageResults2();
+	~rveAverageResults2();
+
+	//dictionary of RVE-averaged quantities
+	map<unsigned int, real_m33> RVEAvgScalar;
+	map<unsigned int, t3x3> RVEAvgTensorial;
+	whenTaken info;
+};
 
 class specOutHeader
 {
@@ -434,6 +496,7 @@ public:
 	~grainpool();
 
 	void build(vector<unsigned int> const & ip2gr);
+	void disori_uppertriangle_matrix();
 	void report();
 	void destroy();
 
@@ -481,12 +544,15 @@ public:
 	//void update_threadlocalbox( aabb3d & current_extremal );
 	void build_sparse_bvh();
 	void spatial_range_query_sbvh_noclear_nosort(const size_t thisip, vector<unsigned int> & results, real_xyz r );
-	void dbscan_ips2grreplicates( const real_xyz eps );
+	void dbscan_ips2grreplicates1( const real_xyz eps ); //##MK::seems there is a flaw here somewhere....
+	void dbscan_ips2grreplicates2( const real_xyz eps );
 	void dbscan_pick_representative();
 	void build_localgrid();
 	void voxelize_via_pvtessellation();
 	void compute_sgndistfun_coarse();
 	void compute_sgndistfun_fsm();
+
+	void build_contour_from_vorotess();
 
 	inline real_sdf m_inputDistance_getValueAt( const int row, const int col, const int dep );
 	inline real_sdf m_outputDistance_getValueAt( const int row, const int col, const int dep );
@@ -531,6 +597,8 @@ public:
 	vector<real_sdf> SgnDistField1;
 	vector<real_sdf> SgnDistField2;
 
+	microstructural_object contour;
+
 	bool alloc_success;
 	bool ips_success;
 	bool sbvh_success;
@@ -573,6 +641,7 @@ public:
 	~specOutIncr();
 
 	void init_mpi_derivedtypes();
+	void parse_taskspecific_opts();
 
 	bool specout_read_header();
 	bool specout_read_structure_homogenization();
@@ -586,13 +655,17 @@ public:
 	t3x3 rve_volume_averaged_defpgradient();
 	t3x3 rve_volume_averaged_defgradient();
 	t3x3 rve_volume_averaged_piolastress();
+	t3x3 rve_volume_averaged_strain();
 	t3x3 rve_volume_averaged_truestrain( t3x3 const & Fav, t3x3 const & Pav );
 	t3x3 rve_volume_averaged_cauchystress( t3x3 const & Fav, t3x3 const & Pav );
+	real_xyz rve_summated_equalweighting( const unsigned int which );
+	t3x3 rve_averaged_equalweighting( const unsigned int which );
 	vMises rve_volume_averaged_scalars( t3x3 const & eps, t3x3 const & cau);
 	void analyze_addRVEAverages( const unsigned int lc, const unsigned int li, const unsigned int glbincrid );
+	void analyze_addRVEAverages2( const unsigned int lc, const unsigned int li, const unsigned int glbincrid );
+	//void analyze_optionalRVEAverages( const unsigned int lc, const unsigned int li, const unsigned int glbincrid );
 
-
-	void analyze_addStrainTensors();
+	void analyze_addStrainTensors_mp();
 	void analyze_addCauchy();
 	void analyze_addVonMises();
 
@@ -603,13 +676,13 @@ public:
 	//void specout_read_heavydata1();
 	void specout_read_heavydata2();
 	bool specout_check_heavydata2();
-	void specout_auxiliarytasks();
 	void write_ipgrid_textureid();
 	void bounded_volume_hierarchy();
 	void analyze_svar_closestuip_disoriangle();
 	void hierarchical_community_detection( vector<lvwtedge> const & edgs, vector<unsigned int> & uip2community );
 	void analyze_identify_grains();
 	void analyze_svar_grainbased_sdf();
+	void analyze_svar_grainbased_cgeom();
 
 	bool check_if_myworkpackage(unsigned int const i, unsigned int const tid, unsigned int const ntid);
 	bool init_threadlocalmemory_sdf();
@@ -621,6 +694,7 @@ public:
 	void write_dbscan_result();
 	void init_global_voxelgrid_csys();
 	void init_grainlocal_voxelgrids_csys();
+	void extract_grainlocal_cuboidalregion_from_rve27();
 	void write_grainlocal_vxlgrids();
 	void fill_global_bvh_p3dm1();
 	void voxelize_this_replica();
@@ -628,19 +702,25 @@ public:
 	void spread_signed_distance_function();
 
 
-	void analyze_mesh_grains();
+	void analyze_boxup_grains();
+	void analyze_build_grains();
 	//void analyze_reconstruct_grains();
 
 	inline void eid_write_gid( const size_t eid, const unsigned int gid );
-	inline quat eid2quaternion( const size_t eid );
+	inline squat eid2quaternion( const size_t eid );
 	inline p3d eid2p3d( const size_t eid );
 	inline unsigned int eid2textureid( const size_t eid );
 	inline unsigned int eid2gid( const size_t eid );
 	dist closestBoundaryInKernelIfAny( const size_t central_eid, vector<dist> const & candidates ); //, vector<size_t>& suspicious );
 	/*void write_histograms(vector<spatdist> const & buf);*/
 	void write_searchefficiency(vector<unsigned int> const & ntested );
+	/*
 	void write_histograms2_ascii(vector<real_xyz> const & bufd, vector<slipsysdata_fcc> const & bufedge, vector<slipsysdata_fcc> const & bufdipo);
-	void write_histograms2_binary(vector<MPI_DisloSpatDistr_Double> const & bufedge, vector<MPI_DisloSpatDistr_Double> const & bufdipo);
+	void write_histograms2_binary( vector<MPI_DisloSpatDistr_Double> const & bufedge, vector<MPI_DisloSpatDistr_Double> const & bufdipo);
+	*/
+	void write_histograms2_binary_stress( vector<MPI_Tensor3x3SpatDistr_Double> const & bufstress );
+	void write_histograms2_binary_ori( vector<MPI_GrainOriSpatDistr_Double> const & bufori );
+
 
 	void compute_edge_weights( const size_t central_eid, vector<dist> const & candidates, vector<lvwtedge> & edgs );
 	void write_edge_weights( vector<lvwtedge> const & edgs );
@@ -656,6 +736,7 @@ public:
 	void write_reconstructed_grains1( vector<grain> const & grpool );
 	void write_identified_grains();
 	void write_grainid_and_quaternions();
+	void write_grainid_and_quaternions_mpiio();
 	void report_rveshapes();
 
 	void free_increment_heavydata();
@@ -667,6 +748,8 @@ public:
 
 	//void report_flowcurve();
 	void report_flowcurve2();
+	void report_flowcurve3( const string fbase, const unsigned int which );
+
 
 	void debug_signed_distance_function();
 
@@ -680,11 +763,15 @@ public:
 	vector<grGeomHdl*> sdf;
 	vxlgrd thegrid;
 
+	map<int, bool>incr2healthy;
 	map<int, int> incr2rank;
 	map<int, int> incr2wincr;
 
+	//task-specific command line switch settings
+	taskspecifics taskops;
+
 	inline string get_prefix() {
-		string prefix = "DAMASKPDT.SimID." + to_string(Settings::SimID) + ".Incr." + to_string(Settings::IncrementFirst) + "." + to_string(Settings::IncrementOffset) + "." + to_string(Settings::IncrementLast);
+		string prefix = "DAMASKPDT.SimID." + to_string(Settings::SimID) + ".Rank." + to_string(get_myrank()) + ".Incr." + to_string(Settings::IncrementFirst) + "." + to_string(Settings::IncrementOffset) + "." + to_string(Settings::IncrementLast);
 		return prefix;
 	}
 	inline int get_myrank(){ return myrank; }
@@ -697,14 +784,16 @@ public:
 	unsigned int thisincrement;
 	unsigned int thiswrittenincrement;
 	vector<rveAverageResults> avg;
+	vector<rveAverageResults2> avg2;
 	bv3x3 rveBaseIni;
 	bv3x3 rveBaseDef;
 
 	shape rveShape;
 
 	//profiling
-	vector<plog> tictoc;
-	void spit_profiling();
+	//vector<plog> tictoc;
+	profiler tictoc;
+	//void spit_profiling();
 
 private:
 	//int which_db( const size_t ip, const size_t e);
@@ -713,9 +802,13 @@ private:
 	int nranks;
 	bool healthy;
 
+	MPI_Datatype MPI_StatusInfo_Type;
 	MPI_Datatype MPI_Tensor3x3_Double_Type;
 	MPI_Datatype MPI_VonMises_Double_Type;
 	MPI_Datatype MPI_DisloSpatDistr_Double_Type;
+	MPI_Datatype MPI_Tensor3x3SpatDistr_Double_Type;
+	MPI_Datatype MPI_GrainOriSpatDistr_Double_Type;
+	MPI_Datatype MPI_GrainQuat_Double_Type;
 };
 
 

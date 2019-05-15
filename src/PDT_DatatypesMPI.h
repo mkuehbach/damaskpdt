@@ -47,6 +47,14 @@
 //container datastructures for MPI intra-process communication to reduce amount of MPI messages and file interaction
 
 
+struct MPI_StatusInfo
+{
+	int value;
+	MPI_StatusInfo() : value(0) {}
+	MPI_StatusInfo(const int _val) : value(_val) {}
+};
+
+
 struct MPI_Tensor3x3_Double
 {
 	double a11;
@@ -128,6 +136,89 @@ struct MPI_DisloSpatDistr_Double
 		d1(static_cast<double>(in[rs+9])), d4(static_cast<double>(in[rs+10])), d6(static_cast<double>(in[rs+11])) {}
 };
 
+
+struct MPI_Tensor3x3SpatDistr_Double
+{
+	double gid;
+	double d;
+
+	double a11;
+	double a12;
+	double a13;
+	double a21;
+	double a22;
+	double a23;
+	double a31;
+	double a32;
+	double a33;
+	MPI_Tensor3x3SpatDistr_Double() :
+		gid(numeric_limits<double>::max()), d(numeric_limits<double>::max()),
+		a11(numeric_limits<double>::max()), a12(numeric_limits<double>::max()), a13(numeric_limits<double>::max()),
+		a21(numeric_limits<double>::max()), a22(numeric_limits<double>::max()), a23(numeric_limits<double>::max()),
+		a31(numeric_limits<double>::max()), a32(numeric_limits<double>::max()), a33(numeric_limits<double>::max()) {}
+	MPI_Tensor3x3SpatDistr_Double(const unsigned int _gid, const real_xyz _d, t3x3 const & in) :
+		gid(static_cast<double>(_gid)), d(static_cast<double>(_d)),
+		a11(static_cast<double>(in.a11)), a12(static_cast<double>(in.a12)), a13(static_cast<double>(in.a13)),
+		a21(static_cast<double>(in.a21)), a22(static_cast<double>(in.a22)), a23(static_cast<double>(in.a23)),
+		a31(static_cast<double>(in.a31)), a32(static_cast<double>(in.a32)), a33(static_cast<double>(in.a33)) {}
+	~MPI_Tensor3x3SpatDistr_Double() {}
+};
+
+
+struct MPI_GrainOriSpatDistr_Double
+{
+	double gid;
+	double d;
+
+	double q0;
+	double q1;
+	double q2;
+	double q3;
+
+	MPI_GrainOriSpatDistr_Double() :
+		gid(numeric_limits<double>::max()), d(numeric_limits<double>::max()),
+		q0(numeric_limits<double>::max()), q1(numeric_limits<double>::max()),
+		q2(numeric_limits<double>::max()), q3(numeric_limits<double>::max()) {}
+	MPI_GrainOriSpatDistr_Double( const unsigned int _gid, const real_xyz _d,
+			const double _q0, const double _q1, const double _q2, const double _q3) :
+		gid(static_cast<double>(_gid)), d(static_cast<double>(_d)),
+			q0(_q0), q1(_q1),q2(_q2), q3(_q3) {}
+	~MPI_GrainOriSpatDistr_Double() {}
+};
+
+
+struct MPI_GrainQuat_Double
+{
+	double gid;
+	double q0;
+	double q1;
+	double q2;
+	double q3;
+
+	MPI_GrainQuat_Double() :
+		gid(numeric_limits<double>::max()),
+		q0(numeric_limits<double>::max()), q1(numeric_limits<double>::max()),
+		q2(numeric_limits<double>::max()), q3(numeric_limits<double>::max()) {}
+	MPI_GrainQuat_Double( const unsigned int _gid,
+			const double _q0, const double _q1, const double _q2, const double _q3) :
+		gid(static_cast<double>(_gid)), q0(_q0), q1(_q1),q2(_q2), q3(_q3) {}
+	~MPI_GrainQuat_Double() {}
+};
+
+
+
+/*
+struct MPI_GrainIDQuat
+{
+	long gid;
+	double q0;
+	double q1;
+	double q2;
+	double q3;
+	MPI_GrainIDQuat() :
+		gid(numeric_limits<long>::max()), q0(0.0), q1(0.0), q2(0.0), q3(0.0) {}
+};
+*/
 
 
 #endif

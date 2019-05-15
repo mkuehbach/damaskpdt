@@ -43,7 +43,7 @@
 #include "PDT_Performance.h"
 
 size_t Performance::MPIIOStripeSizeMin = 1*1024*1024; //B
-size_t Performance::MPIIOStripeSizeMax = 10*1024*1024; //B
+size_t Performance::MPIIOStripeSizeMax = 1*1024*1024; //B
 size_t Performance::MPIIOStripeSize = Performance::MPIIOStripeSizeMax;
 
 size_t Performance::CachePageSize = 4096; //B
@@ -64,18 +64,18 @@ size_t Performance::ThreadBufferAllocSize = 1024*1024; //sizeof MB equivalent
 void Performance::displaySettings()
 {
 #ifdef SINGLE_PRECISION
-	cout << setprecision(9) << endl;
+	cout << setprecision(9) << "\n";
 #else
-	cout << setprecision(18) << endl;
+	cout << setprecision(18) << "\n";
 #endif
 
-	cout << "MPIIOStripeSize\t\t\t" << Performance::MPIIOStripeSize << " Bytes" << endl;
-	cout << "CacheIntegerWidth\t\t" << Performance::CacheIntegerWidth << " elements" << endl;
-	cout << "CacheSingleWidth\t\t" << Performance::CacheSingleWidth << " elements" << endl;
-	cout << "CacheDoubleWidth\t\t" << Performance::CacheDoubleWidth << " elements" << endl;
-	cout << "SIMDIntegerWidth\t\t" << Performance::SIMDIntegerWidth << " elements" << endl;
-	cout << "SIMDSingleWidth\t\t\t" << Performance::SIMDSingleWidth << " elements" << endl;
-	cout << "SIMDDoubleWidth\t\t\t" << Performance::SIMDDoubleWidth << " elements" << endl;
-	cout << "SizeTMaxValue\t\t\t" << std::numeric_limits<size_t>::max() << " elements" << endl;
-	cout << endl;
+	cout << "MPIIOStripeSize\t\t\t" << Performance::MPIIOStripeSize << " Bytes" << "\n";
+	cout << "CacheIntegerWidth\t\t" << Performance::CacheIntegerWidth << " elements" << "\n";
+	cout << "CacheSingleWidth\t\t" << Performance::CacheSingleWidth << " elements" << "\n";
+	cout << "CacheDoubleWidth\t\t" << Performance::CacheDoubleWidth << " elements" << "\n";
+	cout << "SIMDIntegerWidth\t\t" << Performance::SIMDIntegerWidth << " elements" << "\n";
+	cout << "SIMDSingleWidth\t\t\t" << Performance::SIMDSingleWidth << " elements" << "\n";
+	cout << "SIMDDoubleWidth\t\t\t" << Performance::SIMDDoubleWidth << " elements" << "\n";
+	cout << "SizeTMaxValue\t\t\t" << std::numeric_limits<size_t>::max() << " elements" << "\n";
+	cout << "\n";
 }

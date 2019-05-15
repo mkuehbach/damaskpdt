@@ -43,7 +43,7 @@
 #define __PDT_VTKIO_H__
 
 
-#include "PDT_OriMath.h"
+#include "PDT_XDMF.h"
 
 bool vtk_grfinalrecon( vxlgrd const & ggrd, vxlgrd const & lgrd,
 		vector<unsigned int> const & gid, vector<unsigned int> const & uipid,

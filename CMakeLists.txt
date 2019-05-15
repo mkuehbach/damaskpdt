@@ -4,46 +4,95 @@ cmake_minimum_required(VERSION 3.0)
 ##USER INTERACTION##############################################################################################
 ################################################################################################################
 #please name your project accordingly
-set(MYPROJECTNAME "damaskpdt")
+set(MYPROJECTNAME "damaskpdt_vorocomposer_debug")
+
+#tell the top directory where this local DAMASKPDT version is stored
+set(MYPROJECTDIR "/home/m.kuehbach/DAMASKPDT_VoroComposer_FINAL")
+#set(MYPROJECTDIR "/talos/u/mkuehbac/DAMASKPDT_VoroComposer_FINAL")
 
 #choose compiler
-set(EMPLOY_INTELCOMPILER ON)
+set(EMPLOY_INTELCOMPILER ON) #either or
 set(EMPLOY_GNUCOMPILER OFF)
+
+#choose optimization level
+##-O0 nothing, debug purposes, -O1 moderate optimization, -O2 -O3 or production level up to aggressive optimization
+if(EMPLOY_INTELCOMPILER)
+	set(MYOPTLEVEL "-O3 -g -march=skylake") #-O3 -g -march=skylake") #"-O0 -g"
+endif()
+if(EMPLOY_GNUCOMPILER)
+	set(MYOPTLEVEL "-O3 -g -march=native")
+endif()
+
+#necessary libraries and thirdparty dependencies
+set(EMPLOY_MYHDF5 ON)
+##set(EMPLOY_MYTETGEN OFF)
+set(EMPLOY_MYIMKL ON)
+set(EMPLOY_MYBOOST ON)
+##set(EMPLOY_MYBSIMD OFF)
 set(VERBOSE_VECTORIZATION OFF)
 
-#optimization level -O0, -O1, -O2, or -O3
-set(MYOPTLEVEL "-O3 -pg")
+################################################################################################################################
+#END OF INTERACTION FOR NON PRO USERS###########################################################################################
+##in this section advanced users might want/need to make modifications if they use non default places for thirdparty libraries##
+################################################################################################################################ 
 
-#BoostSIMD location
-#this utilizes the copy of the boost simd shipped with damaskpdt utilize absolute addressing...
-if(EMPLOY_INTELCOMPILER)
-	include_directories("/nethome/m.kuehbach/damaskpdt/src/thirdparty/boost.simd/include")
-	include_directories("/nethome/m.kuehbach/damaskpdt/src/thirdparty/boost.simd/include/boost/simd")
-elseif(EMPLOY_GNUCOMPILER)
-	include_directories("/home/m.kuehbach/DAMASK/damaskpdt/src/thirdparty/boost.simd/include")
-	include_directories("/home/m.kuehbach/DAMASK/damaskpdt/src/thirdparty/boost.simd/include/boost/simd")
+#HDF5 BINARY CONTAINER IO LIBRARY
+if(EMPLOY_MYHDF5)
+	#HDF5 local installation for advanced I/O, collecting metadata and bundle analysis results together
+	set(MYHDFPATH "/home/m.kuehbach/APT3DOIM/src/thirdparty/HDF5/CMake-hdf5-1.10.2/build/HDF5-1.10.2-Linux/HDF_Group/HDF5/1.10.2")
+	##set(MYHDFPATH "/talos/u/mkuehbac/HDF5/CMake-hdf5-1.10.2/build/HDF5-1.10.2-Linux/HDF_Group/HDF5/1.10.2")
+	include_directories("${MYHDFPATH}/include")
+	link_directories("${MYHDFPATH}/lib")
+	set(MYHDFLINKFLAGS "-L${MYHDFPATH}/lib/ ${MYHDFPATH}/lib/libhdf5_hl.a ${MYHDFPATH}/lib/libhdf5.a -lz -ldl")
 else()
-	message([FATAL_ERROR] "You have to utilize a compiler!")
+	set(MYHDFPATH "")
+	set(MYHDFLINKFLAGS "")
+	message([STATUS] "HDF5 not activated")
 endif()
-set(MYSIMDFLAGS "-msse4.2")
-message([STATUS] "Use shipped with boost.simd")
 
-#Intel MKL
-#manual finding of IntelMKL where do we find the IntelMKL library
-set(MYMKLROOT "/opt/intel/compilers_and_libraries_2017/linux/mkl//")
-set(MYMKLPATH "${MYMKLROOT}/lib/intel64_lin")
-include_directories("${MYMKLROOT}/include")
-#set(MYMKL "-lmkl_intel_ilp64 -lmkl_sequential -lmkl_core -lpthread -lm -ldl")
-#set(MYMKL "-DMKL_ILP64 -parallel -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -lpthread -ldl")
-#set(MYMKL_COMPILEFLAGS "-mkl -DMKL_ILP64")
-set(MYMKL_COMPILEFLAGS "")
-set(MYMKL_LINKFLAGS "-lmkl_intel_lp64 -lmkl_intel_thread -lmkl_core -liomp5 -lpthread -lm -ldl")
+if(EMPLOY_TETGEN)
+	## no TetGen
+else()
+	message([STATUS] "TetGen library not activated")
+endif()
 
-#check also https://software.intel.com/en-us/articles/intel-mkl-link-line-advisor
-#works for now
-#set(MYMKL_COMPILEFLAGS "")
-#set(MYMKL_LINKFLAGS "-parallel -Wl,--start-group ${MYMKLPATH}/libmkl_intel_lp64.a ${MYMKLPATH}/libmkl_sequential.a ${MYMKLPATH}/libmkl_core.a -Wl,--end-group -lpthread")
+#INTEL MATH KERNEL LIBRARY threaded numerical library Intel MKL
+if(EMPLOY_MYIMKL)
+#	#MAWS30
+#	#manual finding of IntelMKL where do we find the IntelMKL library
+#	#check also https://software.intel.com/en-us/articles/intel-mkl-link-line-advisor
+#	set(MYMKLROOT "/opt/intel/compilers_and_libraries_2017/linux/mkl//")
+#	set(MYMKLPATH "${MYMKLROOT}/lib/intel64_lin")
+#	include_directories("${MYMKLROOT}/include")
+#	set(MYMKL_COMPILEFLAGS "")
+#	set(MYMKL_LINKFLAGS "-lmkl_intel_lp64 -lmkl_intel_thread -lmkl_core -liomp5 -lpthread -lm -ldl")
 
+	#TALOS
+	#INTEL MATH KERNEL LIBRARY threaded numerical library Intel MKL
+	#manual finding of IntelMKL where do we find the IntelMKL library
+	set(MYMKLROOT "/mpcdf/soft/SLE_15/packages/x86_64/intel_parallel_studio/2018.4/mkl")
+	include_directories("${MYMKLROOT}/include")
+	set(MYMKLCOMP "-I${MYMKLROOT}/include")
+	message([STATUS] "${MYMKLCOMP}")
+	message([STATUS] "${MYMKLROOT}")
+	set(MYMKLLINK "-L${MYMKLROOT}/lib/intel64 -lmkl_intel_lp64 -lmkl_intel_thread -lmkl_core -liomp5 -lpthread -lm -ldl -Wl,-rpath,${MYMKLROOT}/lib/intel64")
+	message([STATUS] "${MYMKLLINK}")
+else()
+	message([FATAL_ERROR] "We need the IntelMKL library!")
+endif()
+
+
+
+#Vectorization using BSIMD location
+if(EMPLOY_MYBSIMD)
+	include_directories("${MYPROJECTDIR}/src/thirdparty/boost.simd/include")
+	include_directories("${MYPROJECTDIR}/src/thirdparty/boost.simd/include/boost/simd")
+	set(MYSIMDFLAGS "-msse4.2")
+	message([STATUS] "Use shipped with boost.simd")
+else()
+	message([STATUS] "boost.simd not used")
+	set(MYSIMDFLAGS "")
+endif()
 
 ################################################################################################################
 ##AUTOMATIC SECTION#############################################################################################
@@ -65,32 +114,32 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${MYOPTLEVEL}")
 if(EMPLOY_INTELCOMPILER)
 	message([STATUS] "Employing the Intel compiler!")
 	if (VERBOSE_VECTORIZATION)
-		set(MYVERBOSE "-qopt-report-phase=vec")
+		set(MYVERBOSE "-qopt-report=5")
+	else()
+		set(MYVERBOSE "")
 	endif()
-	set(MYLARGEFILESUPPORT "") #no particular action for intel but record size
 	add_definitions("${MYOPTLEVEL} ${MYVERBOSE} ${MYSIMDFLAGS}")
 	set(MYOMP "-qopenmp -lpthread")
-	##BSIMD
-	##BSIMD
 	add_definitions(${MYOMP})
+	set(MYLARGEFILESUPPORT "")
 	add_definitions("-std=c++0x")
 	add_definitions("-Warray-bounds -Wchar-subscripts -Wcomment -Wenum-compare -Wformat 
 		-Wuninitialized -Wmaybe-uninitialized -Wmain -Wnarrowing -Wnonnull 
 		-Wparentheses -Wpointer-sign -Wreorder -Wreturn-type -Wsign-compare 
 		-Wsequence-point -Wtrigraphs -Wunused-variable")
 	add_definitions("${MYLARGEFILESUPPORT}")
-#gcc path
 elseif(EMPLOY_GNUCOMPILER)
 	message([STATUS] "Employing the GNU compiler!")
 	if(VERBOSE_VECTORIZATION)
 		set(MYVERBOSE "-fopt-info-all")
 	endif()
-	set(MYLARGEFILESUPPORT "-D_FILE_OFFSET_BITS=64")
 	add_definitions("${MYOPTLEVEL} ${MYVERBOSE} ${MYSIMDFLAGS}")
+	
 	set(MYOMP "-fopenmp -lpthread")
+	add_definitions(${MYOMP})
+	set(MYLARGEFILESUPPORT "-D_FILE_OFFSET_BITS=64")
 	#set(BSIMDPATH "-I=/home/m.kuehbach/DAMASK/damaskpdt/src/thirdparty/boost.simd/include -I=/home/m.kuehbach/DAMASK/damaskpdt/src/thirdparty/boost.simd/include/boost/simd")
 	#add_definitions(${BSIMDPATH})
-	add_definitions(${MYOMP})
 	add_definitions("-std=c++11")
 	add_definitions("-Wall -Warray-bounds -Wchar-subscripts -Wcomment -Wenum-compare -Wformat 
 		-Wuninitialized -Wmaybe-uninitialized -Wmain -Wnarrowing -Wnonnull 
@@ -109,40 +158,64 @@ message([STATUS] "We utilize optimization level ${MYOPTLEVEL}")
 find_package(MPI REQUIRED)
 include_directories(${MPI_INCLUDE_PATH})
 
+set(MYSRCPATH "${MYPROJECTDIR}/src/")
+set(MYVOROSRCPATH "${MYSRCPATH}/thirdparty/VoroRycroft/voro++-0.4.6/src/")
+
 add_executable(${MYPROJECTNAME}
-	../src/PDT_Profiler.cpp
-	../src/PDT_Settings.cpp
-	../src/PDT_Performance.cpp
-	../src/PDT_Datatypes.cpp
-	../src/PDT_DatatypesMPI.cpp
-	../src/PDT_TensorMath.cpp
-	../src/PDT_OriMath.cpp
-	../src/PDT_VTKIO.cpp
-	../src/PDT_IntelMKL.cpp
-	../src/PDT_Crystallography.cpp
-	../src/PDT_GrainObject.cpp
-	../src/LOUVAIN_GraphBinary.cpp
-	../src/LOUVAIN_Core.cpp
-	../src/PDT_SpecOutReader.cpp
-	../src/PDT_OptionParser.cpp
-	../src/PDT_Main.cpp
+	${MYSRCPATH}PDT_Profiler.cpp
+	${MYSRCPATH}PDT_Settings.cpp
+	${MYSRCPATH}PDT_Performance.cpp
+	${MYSRCPATH}PDT_Datatypes.cpp
+	${MYSRCPATH}PDT_DatatypesMPI.cpp
+	${MYSRCPATH}PDT_TensorMath.cpp
+	${MYSRCPATH}PDT_OriMath.cpp
+	${MYSRCPATH}PDT_Math.cpp
+	${MYSRCPATH}PDT_AABBTree.cpp
+	${MYSRCPATH}PDT_HDF5.cpp
+	${MYSRCPATH}PDT_XDMF.cpp
+	${MYSRCPATH}PDT_VTKIO.cpp
+
+	${MYVOROSRCPATH}c_loops.cc
+	${MYVOROSRCPATH}cell.cc
+	#${MYVOROSRCPATH}cmd_line.cc
+	${MYVOROSRCPATH}common.cc
+	${MYVOROSRCPATH}container.cc
+	${MYVOROSRCPATH}container_prd.cc
+	${MYVOROSRCPATH}pre_container.cc
+	${MYVOROSRCPATH}unitcell.cc
+	${MYVOROSRCPATH}v_base.cc
+	#${MYVOROSRCPATH}v_base_wl.cc
+	${MYVOROSRCPATH}v_compute.cc
+	#${MYVOROSRCPATH}voro++.cc
+	${MYVOROSRCPATH}wall.cc
+
+	${MYSRCPATH}PDT_VoroComposer.cpp
+	${MYSRCPATH}PDT_IntelMKL.cpp
+	${MYSRCPATH}PDT_Crystallography.cpp
+	${MYSRCPATH}PDT_GrainObject.cpp
+	${MYSRCPATH}LOUVAIN_GraphBinary.cpp
+	${MYSRCPATH}LOUVAIN_Core.cpp
+	${MYSRCPATH}PDT_SpecOutReader.cpp
+	${MYSRCPATH}PDT_OptionParser.cpp
+	${MYSRCPATH}PDT_Main.cpp
 )
 
-#tell us where to find the BoostSIMD library
-#message([STATUS] "We need the boost probable vector intrinsics library...")
+#BOOST CXX HEADER LIBRARY
+if(EMPLOY_MYBOOST)
+	message([STATUS] "We need Boost as well...")
+	include_directories(${Boost_INCLUDE_DIR})
+	link_directories(${Boost_LIBRARY_DIR})
+	find_package(Boost COMPONENTS system filesystem REQUIRED)
+else()
+	message([FATAL_ERROR] "We need the Boost Cpp library!")
+endif()
 
-
-##assure the Boost package is there to allow and ease the reading of files and folders from the filesystem
-message([STATUS] "We need Boost as well...")
-include_directories(${Boost_INCLUDE_DIR})
-link_directories(${Boost_LIBRARY_DIR})
-find_package(Boost COMPONENTS system filesystem REQUIRED)
 
 #linking process
 if(EMPLOY_INTELCOMPILER)
-	target_link_libraries(${MYPROJECTNAME} ${MYOMP} ${MYLARGEFILESUPPORT} ${Boost_LIBRARIES} ${MYMKL_LINKFLAGS} ${MPI_LIBRARIES} )
+	target_link_libraries(${MYPROJECTNAME} ${MYOMP} ${MYLARGEFILESUPPORT} ${Boost_LIBRARIES} ${MYMKLLINK} ${MPI_LIBRARIES} ${MYHDFLINKFLAGS} )
 elseif(EMPLOY_GNUCOMPILER)
-	target_link_libraries(${MYPROJECTNAME} ${MYOMP} ${MYLARGEFILESUPPORT} ${Boost_LIBRARIES} ${MPI_LIBRARIES} )
+	target_link_libraries(${MYPROJECTNAME} ${MYOMP} ${MYLARGEFILESUPPORT} ${Boost_LIBRARIES} ${MPI_LIBRARIES} ${MYHDFLINKFLAGS}  )
 else()
 	message([FATAL_ERROR] "You have to utilize a compiler!")
 endif()
@@ -155,5 +228,3 @@ endif()
 if(MPI_LINK_FLAGS)
   set_target_properties(${MYPROJECTNAME} PROPERTIES LINK_FLAGS "${MPI_LINK_FLAGS}")
 endif()
-
-

@@ -46,8 +46,8 @@
 #define CELSIUS2KELVIN(T)				((273.15) + (T))
 #define KELVIN2CELSIUS(T)				((T) - (273.15))
 
-#define DEGREE2RADIANT(theta)			((theta)/(180.0)*(PI))
-#define RADIANT2DEGREE(rad)				((rad)/(PI)*(180.0))
+#define DEGREE2RADIANT(theta)			((theta)/(180.0)*(MYPI))
+#define RADIANT2DEGREE(rad)				((rad)/(MYPI)*(180.0))
 
 //scaling conversions
 #define METER2CENTIMETER(x)				((x)*(1.0e2))
@@ -64,6 +64,9 @@
 
 #define METER2PICOMETER(x)				((x)*(1.0e12))
 #define PICO2METER(x)					((x)*(1.0e-12))
+
+
+#define BYTE2GIGABYTE(b)				((b)/((1024.0)*(1024.0)*(1024.0)))
 
 
 #endif

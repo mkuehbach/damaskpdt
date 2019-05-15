@@ -48,27 +48,31 @@
 
 struct lvwtedge
 {
+	double wt;				//weight of edge ij
 	unsigned int src;		//ip i
 	unsigned int dest;		//ip j
-	double wt;				//weight of edge ij
+	float disori;			//disorientation angle
+	float distance;			//distance float
 
-	lvwtedge() : src(numeric_limits<unsigned int>::max()), dest(numeric_limits<unsigned int>::max()), wt(0.0) {}
-	lvwtedge(const unsigned int _src, const unsigned int _dst, const double _wt) :
-		src(_src), dest(_dst), wt(_wt) {}
+	lvwtedge() : wt(0.0), src(numeric_limits<unsigned int>::max()), dest(numeric_limits<unsigned int>::max()),
+			disori(0.f), distance(0.f) {}
+	lvwtedge( const double _wt, const unsigned int _src, const unsigned int _dst,
+			const float _dis, const float _dist ) :
+		wt(_wt), src(_src), dest(_dst), disori(_dis), distance(_dist) {}
 	~lvwtedge(){}
 };
 
 
 struct grain
 {
-	quat ori;
+	squat ori;
 	unsigned int gid;
 	unsigned int np;
     grain() :
-    	ori(quat()), gid(numeric_limits<unsigned int>::max()), np(0) {}
-    grain( const quat _ori, const unsigned int _gid) :
+    	ori(squat()), gid(numeric_limits<unsigned int>::max()), np(0) {}
+    grain( const squat _ori, const unsigned int _gid) :
     	ori(_ori), gid(_gid), np(0) {}
-    grain( const quat _ori, const unsigned int _gid, const unsigned int _np) :
+    grain( const squat _ori, const unsigned int _gid, const unsigned int _np) :
     	ori(_ori), gid(_gid), np(_np) {}
     ~grain() {}
 };

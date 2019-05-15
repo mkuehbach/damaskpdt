@@ -49,23 +49,36 @@
 
 #include <limits>
 #include <stdexcept>
-
+#include <cassert>
 
 #include <string>
 #include <vector>
-#include <map>
 #include <set>
-
-//#include <math.h>
-#include<cmath>
+#include <unordered_set>
+#include <map>
+#include <list>
+#include <iterator>
+#include <utility>
 
 #include <algorithm>
 
-#include <stdio.h>
+#include <random>
 
 
-//##MK::Mie{\ss}en fast sweeping implementation
-//#include <std_abs.h>
+#include <ios>
+
+//C header stuff to pull low level system and process status pieces of information
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <cstring>
+
+//C header stuff to pull low level system and process status pieces of information
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+#define SYSTEMSPECIFIC_POSIX_PAGESIZE				(_SC_PAGE_SIZE) 	//##MK::some systems' POSIX library implements _SC_PAGESIZE
 
 
 #endif

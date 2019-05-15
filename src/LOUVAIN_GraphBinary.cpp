@@ -280,7 +280,7 @@ void Graph::display()
 					cout << " " << *(p.first+i);
 			}
 		}
-		cout << endl;
+		cout << "\n";
 	}
 }
 

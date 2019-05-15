@@ -86,11 +86,12 @@ struct quatcloud
 	~quatcloud(){}
 };
 
-
+/*
 #define SQR(a)					((a)*(a))
 #define CUBE(a)					((a)*(a)*(a))
 #define MIN(X,Y)				(((X) < (Y)) ? (X) : (Y))
 #define MAX(X,Y)				(((X) > (Y)) ? (X) : (Y))
+*/
 
 #define MAXIMUM_MISORI_FCC		(DEGREE2RADIANT(62.8))
 #define SYMMETRIES_IN_FCC		(24)
@@ -122,6 +123,8 @@ struct quatcloud
  * counter-clockwise rotations are positive to an outbound axis
  * the range of the Bunge-Euler angles is \varphi_1 \in [0,2\pi], \Phi \in [0, \pi], \varphi_2 \in [0,2\pi]
 */
+
+/*
 #define P_EIJK					(+1.0) 		//MK::do not change, unless reading above reference!
 
 void inverse_quaternion( real_ori* q );
@@ -133,10 +136,114 @@ real_ori disorientation_angle_fcc( real_ori* p, real_ori* q );
 real_ori disorientation_q0_fcc( real_ori* p, real_ori* q );
 
 quatcloud quaternioncloud_characterize( vector<quat> const & q );
+*/
+
 /*
 //tensor math
 bv3x3 leftmult( t3x3 const & defgrad, bv3x3 const & bvecs );
 
 */
+
+
+//Konijnenberg et al. conventions
+#define P_IJK			-1
+
+//numerical precision
+//toggle definition to switch between single and double precision
+//#define ORI_SINGLE_PRECISION
+#ifdef ORI_SINGLE_PRECISION
+	typedef float ori_real;
+	#define ORI_TWO static_cast<ori_real>(2.f)
+	#define ORI_ONE static_cast<ori_real>(1.f)
+	#define ORI_HALF static_cast<ori_real>(0.5)
+	#define ORI_ZERO static_cast<ori_real>(0.f)
+	#define ORI_EPSILON	static_cast<ori_real>(1.0e-5)
+#else
+	#define ORI_DOUBLE_PRECISION
+	typedef double ori_real;
+	#define ORI_TWO static_cast<ori_real>(2.0)
+	#define ORI_ONE static_cast<ori_real>(1.0)
+	#define ORI_HALF static_cast<ori_real>(0.5)
+	#define ORI_ZERO static_cast<ori_real>(0.0)
+	#define ORI_EPSILON	static_cast<ori_real>(1.0e-12)
+#endif
+
+struct squat;
+struct bunge;
+
+//parameterizations
+struct om3x3
+{
+	ori_real a11;				//a second order rank tensor with row-column indexing
+	ori_real a12;
+	ori_real a13;
+	ori_real a21;
+	ori_real a22;
+	ori_real a23;
+	ori_real a31;
+	ori_real a32;
+	ori_real a33;
+	om3x3() :	a11(ORI_ONE), a12(ORI_ZERO), a13(ORI_ZERO),
+				a21(ORI_ZERO), a22(ORI_ONE), a23(ORI_ZERO),
+				a31(ORI_ZERO), a32(ORI_ZERO), a33(ORI_ONE) {}	//initialize to identity tensor
+	om3x3( 	const ori_real _a11, const ori_real _a12, const ori_real _a13,
+			const ori_real _a21, const ori_real _a22, const ori_real _a23,
+			const ori_real _a31, const ori_real _a32, const ori_real _a33 ) :
+						a11(_a11), a12(_a12), a13(_a13),
+						a21(_a21), a22(_a22), a23(_a23),
+						a31(_a31), a32(_a32), a33(_a33) {}
+	ori_real det();
+	squat om2qu();
+	bunge om2eu();
+};
+
+ostream& operator << (ostream& in, om3x3 const & val);
+
+
+struct squat
+{
+	//w,v,x,z
+	ori_real q0;
+	ori_real q1;
+	ori_real q2;
+	ori_real q3;
+	squat() : q0(ORI_ONE), q1(ORI_ZERO), q2(ORI_ZERO), q3(ORI_ZERO) {}
+	squat( const ori_real _q0, const ori_real _q1, const ori_real _q2, const ori_real _q3 );
+	squat( const ori_real X0, const ori_real X1, const ori_real X2 );
+
+	void normalize();
+	squat invert(); //to switch active <=> passive
+	squat conjugate();
+
+	//conversion routine D. Rowenhorst et al. MSMSE 23 2015
+	om3x3 qu2om();
+	bunge qu2eu();
+};
+
+ostream& operator<<(ostream& in, squat const & val);
+
+
+struct bunge
+{
+	//Bunge Texture Orientations book, //phi1, Phi, phi2, ZXZ, passive orientation matrix
+	ori_real phi1;
+	ori_real Phi;
+	ori_real phi2;
+	bunge() : phi1(ORI_ZERO), Phi(ORI_ZERO), phi2(ORI_ZERO) {}
+	bunge( const ori_real _e1, const ori_real _e2, const ori_real _e3 ) :
+		phi1(_e1), Phi(_e2), phi2(_e3) {}
+	bunge( const string parseme );
+
+	squat eu2qu();
+	om3x3 eu2om();
+};
+
+
+ostream& operator<<(ostream& in, bunge const & val);
+
+
+squat multiply_quaternion( squat const & p, squat const & q);
+pair<ori_real,ori_real> disorientation_angle_fcc_grimmer( squat const & qcand );
+
 
 #endif

@@ -61,9 +61,9 @@ ostream& operator << (ostream& in, diary const & val) {
 	//append as in the postResults.py scripts which analysis tasks were conducted
 
 	//##MK::implement a check which ticks internally what was really done...
-	cout << "DAMASK PDT v" << VERSION_MAJOR << "." << VERSION_MINOR << "." << VERSION_REVISION << endl;
-	cout << "Utilizing Cartesian global coordinate system, right-handed, x,y,z!" << endl;
-	in << "Task monitoring remains to be implemented #####" << endl;
+	cout << "DAMASK PDT v" << VERSION_MAJOR << "." << VERSION_MINOR << "." << VERSION_REVISION << "\n";
+	cout << "Utilizing Cartesian global coordinate system, right-handed, x,y,z!" << "\n";
+	in << "Task monitoring remains to be implemented #####" << "\n";
 	return in;
 }
 
@@ -129,7 +129,7 @@ void mesh::eipid2xyz0()
 			static_cast<real_xyz>(1.0) / static_cast<real_xyz>(dim[1]),
 			static_cast<real_xyz>(1.0) / static_cast<real_xyz>(dim[2])  };
 
-//cout << scaler[0] << ";" << scaler[1] << ";" << scaler[2] << endl;
+//cout << scaler[0] << ";" << scaler[1] << ";" << scaler[2] << "\n";
 
 	//perform mapping knowing in advance that indexing in DAMASK_spectral is x+y*NX+z*NX*NY
 	//size_t Nnodes = static_cast<size_t>(dim[0]+1) * static_cast<size_t>(dim[1]+1) * static_cast<size_t>(dim[2]+1);
@@ -184,7 +184,7 @@ void mesh::eipid2xyz0()
 
 //##MK::DEBUG
 //p3d debug = xyz0.back();
-//cout << debug.x << "\t\t\t" << debug.y << "\t\t\t" << debug.z << endl;
+//cout << debug.x << "\t\t\t" << debug.y << "\t\t\t" << debug.z << "\n";
 	}
 }
 
@@ -348,6 +348,47 @@ t3x3 cryst::compute_average_P()
 }
 
 
+real_xyz cryst::compute_summate_equalweighting( vector<real_xyz> const & in )
+{
+	//##MK::OpenMP and SIMD
+	//volume average general t3x3 tensor
+	//real_m33 w = static_cast<real_m33>(1.0); //##MK::strictly speaking should be ip volume
+	real_xyz tmp = 0.0;
+
+	size_t i = 0;
+	size_t ni = in.size();
+	for ( 	; i < ni; ++i ) { //summating
+		tmp += in.at(i);
+	}
+
+	return tmp;
+}
+
+
+t3x3 cryst::compute_average_equalweighting( vector<t3x3> const & in )
+{
+	//##MK::OpenMP and SIMD
+	//volume average general t3x3 tensor
+	t3x3 tmp = zerot3x3();
+	real_m33 w = static_cast<real_m33>(1.0); //##MK::strictly speaking should be ip volume
+
+	size_t i = 0;
+	size_t ni = in.size();
+	for ( 	; i < ni; ++i ) { //summating
+		tmp.add( in.at(i), w );
+	}
+
+	if ( ni > 0 ) {	//most likely averaging
+		real_m33 scaler = static_cast<real_m33>(ni);
+		tmp.div( scaler );
+		return tmp;
+	}
+
+	//implicit else zero matrix
+	return zerot3x3();
+}
+
+
 consti::consti()
 {
 	owner = NULL;
@@ -387,127 +428,9 @@ memRegion::~memRegion()
 }
 
 
-void memRegion::db_distr_homogenization( const double* raw, const size_t eipfirst, const size_t eipn )
+void memRegion::db_distr_homogenization2( const double* raw, const size_t eipfirst, const size_t eipn )
 {
 }
-
-
-/*
-void memRegion::db_distr_crystallite( const double* raw, const size_t eipfirst, const size_t eipn )
-{
-	//raw, is a buffer of doubles, which by construction contains complete packages of homog+cryst+consti for en Elements <=> mesh element ips
-
-	//efirst the first DAMASK mesh integration point for which raw buffers data
-	//en the total number of complete raw buffer data packets
-
-	if ( (eipfirst + eipn) < eipid_start ) { //(no index overlap, leftcase) raw contains data from ips with ids much smaller than what I should take care of
-		return;
-	}
-	else if ( eipfirst >= eipid_end ) { //(no index overlap, rightcase) raw contains data from ip with ids much larger than what I should take care of
-		return;
-	} //for most threads these are the most likely entered cases, however we still perform the datapartitioning on the in parallel to allow the writing of the data in controllable threadlocal memory, which in particular for ccNUMA system is crucial
-	else { //there is partial overlap, but I care only for the data from ip with ids within my id range to process i.e. (eip_start,eip_end(
-		//we know that the first byte of raw begins always with data for an integration points not a fraction of data for one ip on two or more threads...
-		//but that integration point may still to be stored in another memory region (partial index overlap) so first of all we
-		//need to think in multiples of
-
-		size_t dbls_per_eip = static_cast<size_t>(owner->head.matpres);
-
-		//initially pointing to first byte of raw, offset is a byte offset
-		size_t offset_start = 0 + ( (eipid_start - eipfirst) * dbls_per_eip);
-		size_t offset_end = eipn * dbls_per_eip; //stopping after having read so many bytes, ie up to the end of the input buffer raw!
-		//potentially however eip_next requires me to stop processing earlier as otherwise I would also process ids past eip_end(
-		if ( (eipfirst + eipn) > eipid_end ) {
-			//raw contains data past the range of damask integration point grid ids for which I have to take care of
-			offset_end = (eipid_end - eipfirst) * dbls_per_eip;
-			//#####MK???????????????????????????????????????????????????????????
-		}
-
-//cout << "cryst-->tid/dblspereip/offsetstart/offsetend/eipfirst/eipn = " << omp_get_thread_num() << ";" << dbls_per_eip << ";" << offset_start << ";" << offset_end << ";" << eipfirst << ";" << eipn << endl;
-
-		//transfer values to database
-		for ( size_t here = offset_start; here < offset_end; here = here + dbls_per_eip ) { //here is a byte offset, but we work in packages of head.matpres results
-			//spectralOut files are read strictly forward iterating
-			//thus we can pushback to db.arrays as integration points with lower ids that I take care of
-			//then were already pushed back
-
-			//###detailed data layout depends on case, evaluate owner->dlayout following the vectors forward iterating
-
-			//###DEBUG
-			size_t i = 0; //offset_start;
-			i+=1; //skip n homo, knowing there is no homo
-			i+=1; //1 ip per el
-			i+=1; //not interested in Ncrystallite results
-
-			//mind order of owner->dlayout. ...
-			crystallite.PhaseID.push_back( static_cast<unsigned int>(raw[here+i]) ); i+=1;
-//cout << crystallite.PhaseID.back() << endl;
-			crystallite.TextureID.push_back( static_cast<unsigned int>(raw[here+i]) ); i+=1;
-//cout << crystallite.TextureID.back() << endl;
-			crystallite.V.push_back( static_cast<real_xyz>(raw[here+i]) ); i+=1;
-//cout << crystallite.V.back() << endl;
-			real_ori qtmp[4] = { 	static_cast<real_ori>(raw[here+i+0]),
-									static_cast<real_ori>(raw[here+i+1]),
-									static_cast<real_ori>(raw[here+i+2]),
-									static_cast<real_ori>(raw[here+i+3])   };
-			//##MK::at least even in DAMASK v2.0.1 internally quaternions specified actively interpreted rotations
-			// will change with next release to become consistent with
-			// D. Rowenhorst, A. D. Rollett, G. S. Rohrer, M. Groeber, M. Jackson, P. J. Konijnenberg, M. de Graef
-			// Modelling and Simulation in Materials Science and Engineering 2015, Vol 23,
-			// doi: 10.1088/0965-0393/23/8/083501
-			// as such currently we have to reinterpret
-			//
-//cout << "before active quaternion \t\t" << qtmp[0] << ";" << qtmp[1] << ";" << qtmp[2] << ";" << qtmp[3] << endl;
-/*
-active2passive( qtmp );
-//cout << "now passive quaternion \t\t" << qtmp[0] << ";" << qtmp[1] << ";" << qtmp[2] << ";" << qtmp[3] << endl;
-
-			crystallite.q.push_back( quat( qtmp[0], qtmp[1], qtmp[2], qtmp[3] ) ); i+=4;
-
-//cout << crystallite.q.back().q0 << ";" << crystallite.q.back().q1 << ";" << crystallite.q.back().q2 << ";" << crystallite.q.back().q3 << endl;
-			i+=3; //skip euler
-			i+=4; //skip rotation
-
-			crystallite.F.push_back( t3x3(
-					static_cast<real_m33>(raw[here+i+0]),
-					static_cast<real_m33>(raw[here+i+1]),
-					static_cast<real_m33>(raw[here+i+2]),
-					static_cast<real_m33>(raw[here+i+3]),
-					static_cast<real_m33>(raw[here+i+4]),
-					static_cast<real_m33>(raw[here+i+5]),
-					static_cast<real_m33>(raw[here+i+6]),
-					static_cast<real_m33>(raw[here+i+7]),
-					static_cast<real_m33>(raw[here+i+8])) ); i+=9;
-//cout << crystallite.F.at(crystallite.F.size()-1) << endl;
-			i+=9; //skip fe
-			crystallite.Fp.push_back( t3x3(
-					static_cast<real_m33>(raw[here+i+0]),
-					static_cast<real_m33>(raw[here+i+1]),
-					static_cast<real_m33>(raw[here+i+2]),
-					static_cast<real_m33>(raw[here+i+3]),
-					static_cast<real_m33>(raw[here+i+4]),
-					static_cast<real_m33>(raw[here+i+5]),
-					static_cast<real_m33>(raw[here+i+6]),
-					static_cast<real_m33>(raw[here+i+7]),
-					static_cast<real_m33>(raw[here+i+8])) ); i+=9;
-			//nothing more we are interested in
-
-			crystallite.P.push_back( t3x3(
-					static_cast<real_m33>(raw[here+i+0]),
-					static_cast<real_m33>(raw[here+i+1]),
-					static_cast<real_m33>(raw[here+i+2]),
-					static_cast<real_m33>(raw[here+i+3]),
-					static_cast<real_m33>(raw[here+i+4]),
-					static_cast<real_m33>(raw[here+i+5]),
-					static_cast<real_m33>(raw[here+i+6]),
-					static_cast<real_m33>(raw[here+i+7]),
-					static_cast<real_m33>(raw[here+i+8])) ); i+=9;
-//cout << crystallite.P.back() << endl;
-
-		} //proceed with next element aka ip
-	}
-}
-*/
 
 
 void memRegion::db_distr_crystallite2( const double* raw, const size_t eipfirst, const size_t eipn )
@@ -544,7 +467,7 @@ void memRegion::db_distr_crystallite2( const double* raw, const size_t eipfirst,
 			//#####MK???????????????????????????????????????????????????????????
 		}
 
-cout << "cryst-->tid/dblspereip/offsetstart/offsetend/eipfirst/eipn = " << omp_get_thread_num() << ";" << dbls_per_eip << ";" << offset_start << ";" << offset_end << ";" << eipfirst << ";" << eipn << endl;
+//cout << "cryst-->tid/dblspereip/offsetstart/offsetend/eipfirst/eipn = " << omp_get_thread_num() << ";" << dbls_per_eip << ";" << offset_start << ";" << offset_end << ";" << eipfirst << ";" << eipn << "\n";
 
 		//transfer values to database
 		for ( size_t here = offset_start; here < offset_end; here = here + dbls_per_eip ) { //here is a byte offset, but we work in packages of head.matpres results
@@ -567,50 +490,62 @@ cout << "cryst-->tid/dblspereip/offsetstart/offsetend/eipfirst/eipn = " << omp_g
 			
 			//MK::utilize that order in *.outputCrystallite labeling meta information file
 			//encodes in strictly ascending order the internal structure of a single binary data block per eip
-			unsigned int nkeys = owner->dlayout.crystallite.size();
+			unsigned int nkeys = owner->dlayout.cryst_meta.size();
 			for ( unsigned int key = 0; key < nkeys; ++key) {
 				
-				string thiskey = owner->dlayout.crystallite.at(key).key;
-				unsigned int len = owner->dlayout.crystallite.at(key).valui;
+				string thiskey = owner->dlayout.cryst_meta.at(key).key;
+				unsigned int len = owner->dlayout.cryst_meta.at(key).valui;
 				
 				if (thiskey.compare("phase") == 0) {
 					crystallite.PhaseID.push_back( static_cast<unsigned int>(raw[here+i]) ); 
 					i+=len; //1;
-//cout << crystallite.PhaseID.back() << endl;
+//cout << crystallite.PhaseID.back() << "\n";
 				}
 				else if (thiskey.compare("texture") == 0) {
 					crystallite.TextureID.push_back( static_cast<unsigned int>(raw[here+i]) ); 
 					i+=len; //1;
-//cout << crystallite.TextureID.back() << endl;
+//cout << crystallite.TextureID.back() << "\n";
 				}
 				else if (thiskey.compare("volume") == 0) {
 					crystallite.V.push_back( static_cast<real_xyz>(raw[here+i]) );
 					i+=len; //1;
-//cout << crystallite.V.back() << endl;				
+//cout << crystallite.V.back() << "\n";
 				}
 				else if (thiskey.compare("orientation") == 0) {
+					//until DAMASK v2.0 reported not necessarily Rowenhorst et al. consistent active quaternions
+					/*
 					real_ori qtmp[4] = { 	static_cast<real_ori>(raw[here+i+0]),
 											static_cast<real_ori>(raw[here+i+1]),
 											static_cast<real_ori>(raw[here+i+2]),
 											static_cast<real_ori>(raw[here+i+3])   };
 					//##MK::at least even in DAMASK v2.0.1 internally quaternions specified actively interpreted rotations
-					/* will change with next release to become consistent with
-					 * D. Rowenhorst, A. D. Rollett, G. S. Rohrer, M. Groeber, M. Jackson, P. J. Konijnenberg, M. de Graef
-					 * Modelling and Simulation in Materials Science and Engineering 2015, Vol 23,
-					 * doi: 10.1088/0965-0393/23/8/083501
-					 * as such currently we have to reinterpret
-					 */
-//cout << "before active quaternion \t\t" << qtmp[0] << ";" << qtmp[1] << ";" << qtmp[2] << ";" << qtmp[3] << endl;
+					//will change with next release to become consistent with
+					// D. Rowenhorst, A. D. Rollett, G. S. Rohrer, M. Groeber, M. Jackson, P. J. Konijnenberg, M. de Graef
+					// Modelling and Simulation in Materials Science and Engineering 2015, Vol 23,
+					// doi: 10.1088/0965-0393/23/8/083501
+					// as such currently we have to reinterpret
+					//
+//cout << "before active quaternion \t\t" << qtmp[0] << ";" << qtmp[1] << ";" << qtmp[2] << ";" << qtmp[3] << "\n";
 					active2passive( qtmp );
-//cout << "now passive quaternion \t\t" << qtmp[0] << ";" << qtmp[1] << ";" << qtmp[2] << ";" << qtmp[3] << endl;
+//cout << "now passive quaternion \t\t" << qtmp[0] << ";" << qtmp[1] << ";" << qtmp[2] << ";" << qtmp[3] << "\n";
+ 	 	 	 	 	crystallite.q.push_back( quat( qtmp[0], qtmp[1], qtmp[2], qtmp[3] ) );
+					*/
 
-					crystallite.q.push_back( quat( qtmp[0], qtmp[1], qtmp[2], qtmp[3] ) ); 
-//cout << "stored in crystallite \t\t" << crystallite.q.back().q0 << ";" << crystallite.q.back().q1 << ";" << crystallite.q.back().q2 << ";" << crystallite.q.back().q3 << endl;
+					//since definately DAMASK v2.0.3 now only quaternions reported using P_IJK = -1 and passive
+					crystallite.q.push_back( squat(
+							static_cast<ori_real>(raw[here+i+0]),
+							static_cast<ori_real>(raw[here+i+1]),
+							static_cast<ori_real>(raw[here+i+2]),
+							static_cast<ori_real>(raw[here+i+3]) ) );
+
+//cout << "stored in crystallite \t\t" << crystallite.q.back().q0 << ";" << crystallite.q.back().q1 << ";" << crystallite.q.back().q2 << ";" << crystallite.q.back().q3 << "\n";
 					i+=len; //4;
 				}
+				/*
+				//since DAMASK v2.0.3 no longer exists
 				else if (thiskey.compare("eulerangles") == 0) {
 					i+=len; //3; //skip eulerangles
-				}
+				}*/
 				else if (thiskey.compare("grainrotation") == 0) {
 					i+=len; //4; //skip rotation
 				}
@@ -626,9 +561,19 @@ cout << "cryst-->tid/dblspereip/offsetstart/offsetend/eipfirst/eipn = " << omp_g
 							static_cast<real_m33>(raw[here+i+7]),
 							static_cast<real_m33>(raw[here+i+8])) ); 
 					i+=len; //9;
-//cout << crystallite.F.back() << endl;					
+//cout << crystallite.F.back() << "\n";
 				}
 				else if (thiskey.compare("fe") == 0) {
+					crystallite.Fe.push_back( t3x3(
+							static_cast<real_m33>(raw[here+i+0]),
+							static_cast<real_m33>(raw[here+i+1]),
+							static_cast<real_m33>(raw[here+i+2]),
+							static_cast<real_m33>(raw[here+i+3]),
+							static_cast<real_m33>(raw[here+i+4]),
+							static_cast<real_m33>(raw[here+i+5]),
+							static_cast<real_m33>(raw[here+i+6]),
+							static_cast<real_m33>(raw[here+i+7]),
+							static_cast<real_m33>(raw[here+i+8])) );
 					i+=len; //9; //skip fe					
 				}
 				else if (thiskey.compare("fp") == 0) {
@@ -644,12 +589,13 @@ cout << "cryst-->tid/dblspereip/offsetstart/offsetend/eipfirst/eipn = " << omp_g
 						static_cast<real_m33>(raw[here+i+8])) );
 					i+=len; //9;
 				}
+				/* we do not use
 				else if (thiskey.compare("e") == 0) {
 					i+=len; //9;
 				}
 				else if (thiskey.compare("ee") == 0) {
 					i+=len; //9;
-				}
+				}*/
 				else if (thiskey.compare("p") == 0) {
 					crystallite.P.push_back( t3x3(
 						static_cast<real_m33>(raw[here+i+0]),
@@ -662,7 +608,7 @@ cout << "cryst-->tid/dblspereip/offsetstart/offsetend/eipfirst/eipn = " << omp_g
 						static_cast<real_m33>(raw[here+i+7]),
 						static_cast<real_m33>(raw[here+i+8])) );
 					i+=len; //9;
-//cout << crystallite.P.back() << endl;
+//cout << crystallite.P.back() << "\n";
 				}
 				else if (thiskey.compare("lp") == 0) {
 					i+=len; //9;
@@ -677,76 +623,6 @@ cout << "cryst-->tid/dblspereip/offsetstart/offsetend/eipfirst/eipn = " << omp_g
 		} //proceed with next element aka ip
 	}
 }
-
-
-/*
-void memRegion::db_distr_constitutive( const double* raw, const size_t eipfirst, const size_t eipn )
-{
-	//see detailed explanation in db_distr_crystallite
-	if ( (eipfirst + eipn) < eipid_start ) { return; }
-	else if ( eipfirst >= eipid_end ) { return; }
-	else {
-		size_t dbls_per_eip = static_cast<size_t>(owner->head.matpres);
-
-		//initially pointing to first byte of raw, offset is a byte offset
-		size_t offset_start = 0 + ( (eipid_start - eipfirst) * dbls_per_eip);
-		size_t offset_end = eipn * dbls_per_eip;
-		if ( (eipfirst + eipn) > eipid_end ) {
-			offset_end = (eipid_end - eipfirst) * dbls_per_eip;
-		}
-
-cout << "const-->tid/dblspereip/offsetstart/offsetend/eipfirst/eipn = " << omp_get_thread_num() << ";" << dbls_per_eip << ";" << offset_start << ";" << offset_end << ";" << eipfirst << ";" << eipn << endl;
-
-		//set multiplier
-		constitutive.rho_e_mult = owner->dlayout.constitutive_getvalui( "edge_density" );
-		constitutive.rho_d_mult = owner->dlayout.constitutive_getvalui( "dipole_density" );
-
-//cout << "emult/dmult " << constitutive.rho_e_mult << ";" << constitutive.rho_d_mult << endl;
-
-		//transfer values to database
-		for ( size_t here = offset_start; here < offset_end; here = here + dbls_per_eip ) {
-
-			size_t i = 0; //offset_start;
-
-			size_t homogres = static_cast<size_t>(raw[here+i]);
-//cout << i << "\t\t" << homogres << endl;
-			i+=homogres; //skip homogenization completely
-			i+=1;
-			i+=1; //1 ip per el
-			size_t crystres = static_cast<size_t>(raw[here+i]);
-			i+=crystres; //skip Ncrystallite results completelyted in Ncrystallite results
-//cout << i << "\t\t" << crystres << endl;
-			i+=1;
-
-			//beginning of constitutive section
-			i+=1; //skip how many results there are
-
-			//keep skipping until found what desired
-			for (unsigned int r = 0; r < owner->dlayout.constitutive.size(); ++r) { //order of dlayout has sequence as the corresponding data in the raw buffer
-				if (owner->dlayout.constitutive.at(r).key.compare("edge_density") == 0) {
-					for (unsigned int sys = 0; sys < constitutive.rho_e_mult; ++sys) {
-						constitutive.rho_e.push_back(static_cast<real_rho>(raw[here+i+sys]));
-//cout << constitutive.rho_e.back() << "__";
-					}
-//cout << endl << endl;
-					i+= constitutive.rho_e_mult;
-				}
-				if (owner->dlayout.constitutive.at(r).key.compare("dipole_density") == 0) {
-					for (unsigned int sys = 0; sys < constitutive.rho_d_mult; ++sys) {
-						constitutive.rho_d.push_back(static_cast<real_rho>(raw[here+i+sys]));
-//cout << constitutive.rho_d.back() << "__";
-					}
-//cout << endl;
-					i+= constitutive.rho_d_mult;
-				}
-				//anything else we dont care
-			}
-
-//break;
-		} //proceed with next element aka ip
-	}
-}
-*/
 
 
 void memRegion::db_distr_constitutive2( const double* raw, const size_t eipfirst, const size_t eipn )
@@ -767,13 +643,13 @@ void memRegion::db_distr_constitutive2( const double* raw, const size_t eipfirst
 			offset_end = (eipid_end - eipfirst) * dbls_per_eip;
 		}
 
-cout << "const-->tid/dblspereip/offsetstart/offsetend/eipfirst/eipn = " << omp_get_thread_num() << ";" << dbls_per_eip << ";" << offset_start << ";" << offset_end << ";" << eipfirst << ";" << eipn << endl;
+//cout << "const-->tid/dblspereip/offsetstart/offsetend/eipfirst/eipn = " << omp_get_thread_num() << ";" << dbls_per_eip << ";" << offset_start << ";" << offset_end << ";" << eipfirst << ";" << eipn << "\n";
 
 		//set multiplier
 		constitutive.rho_e_mult = owner->dlayout.constitutive_getvalui( "edge_density" );
 		constitutive.rho_d_mult = owner->dlayout.constitutive_getvalui( "dipole_density" );
 
-cout << "emult/dmult " << constitutive.rho_e_mult << ";" << constitutive.rho_d_mult << endl;
+//cout << "emult/dmult " << constitutive.rho_e_mult << ";" << constitutive.rho_d_mult << "\n";
 
 		//transfer values to database
 		for ( size_t here = offset_start; here < offset_end; here = here + dbls_per_eip ) {
@@ -781,36 +657,36 @@ cout << "emult/dmult " << constitutive.rho_e_mult << ";" << constitutive.rho_d_m
 			size_t i = 0; //offset_start;
 			size_t homogres = static_cast<size_t>(raw[here+i]);
 			i+=1; //skip number of results for homogenization
-//cout << i << "\t\t" << homogres << endl;
+//cout << i << "\t\t" << homogres << "\n";
 			i+=homogres; //skip homogenization completely
 
 			i+=1; //skip how many grains per material point
 			size_t crystres = static_cast<size_t>(raw[here+i]);
 			i+=1;
-//cout << i << "\t\t" << crystres << endl;
+//cout << i << "\t\t" << crystres << "\n";
 			i+=crystres; //skip Ncrystallite results completelyted in Ncrystallite results
 
 			size_t constres = static_cast<size_t>(raw[here+i]); //beginning of constitutive section
-//cout << i << "\t\t" << constres << endl;
+//cout << i << "\t\t" << constres << "\n";
 			i+=1; //skip how many results there are
 
 			if ( constres > 0) { //read if any
 				//keep skipping until found what desired
-				for (unsigned int r = 0; r < owner->dlayout.constitutive.size(); ++r) { //order of dlayout has sequence as the corresponding data in the raw buffer
-					if (owner->dlayout.constitutive.at(r).key.compare("edge_density") == 0) {
+				for (unsigned int r = 0; r < owner->dlayout.const_meta.size(); ++r) { //order of dlayout has sequence as the corresponding data in the raw buffer
+					if (owner->dlayout.const_meta.at(r).key.compare("edge_density") == 0) {
 						for (unsigned int sys = 0; sys < constitutive.rho_e_mult; ++sys) {
 							constitutive.rho_e.push_back(static_cast<real_rho>(raw[here+i+sys]));
 //cout << constitutive.rho_e.back() << "__";
 						}
-//cout << endl << endl;
+//cout << "\n" << "\n";
 						i+= constitutive.rho_e_mult;
 					}
-					if (owner->dlayout.constitutive.at(r).key.compare("dipole_density") == 0) {
+					if (owner->dlayout.const_meta.at(r).key.compare("dipole_density") == 0) {
 						for (unsigned int sys = 0; sys < constitutive.rho_d_mult; ++sys) {
 							constitutive.rho_d.push_back(static_cast<real_rho>(raw[here+i+sys]));
 //cout << constitutive.rho_d.back() << "__";
 						}
-//cout << endl;
+//cout << "\n";
 						i+= constitutive.rho_d_mult;
 					}
 					//anything else we dont care
@@ -950,6 +826,16 @@ rveAverageResults::~rveAverageResults()
 }
 
 
+rveAverageResults2::rveAverageResults2()
+{
+	info = whenTaken();
+}
+
+rveAverageResults2::~rveAverageResults2()
+{
+}
+
+
 specOutHeader::specOutHeader()
 {
 	owner = NULL;
@@ -1026,7 +912,7 @@ void bvh_xyzm2::aabb3d_about_deformed()
 {
 	//compute position of all elements and their periodic images, determine axis-aligned bounding box about this volume
 	aabb3d glolimits = aabb3d();
-cout << "glolimits " << endl << glolimits << endl;
+//cout << "glolimits " << "\n" << glolimits << "\n";
 
 	#pragma omp parallel shared(glolimits)
 	{
@@ -1065,7 +951,7 @@ cout << "glolimits " << endl << glolimits << endl;
 	string descr = "AABB0AboutDeformed";
 	owner->rveShape.add( glolimits, descr );
 
-cout << "owin_deformed " << endl << owin_deformed << endl;
+cout << "owin_deformed " << "\n" << owin_deformed << "\n";
 }
 
 
@@ -1089,7 +975,7 @@ void bvh_xyzm2::aabb3d_add_guardzone()
 	string descr = "AABB1AboutDeformed";
 	owner->rveShape.add( guarded, descr );
 
-cout << "owin_final " << endl << owin_final << endl;
+cout << "owin_final " << "\n" << owin_final << "\n";
 }
 
 
@@ -1114,7 +1000,7 @@ void bvh_xyzm2::spatialpartitioning_init()
 
 	//minimum dimension of owin_final
 	real_xyz dmin = min(min(dx,dy),dz);
-cout << "dmin " << dmin << endl;
+cout << "Minimum dimension of owin_final dmin " << dmin << "\n";
 
 	//with density of elements in owin_deformed, estimate partitioning
 
@@ -1124,7 +1010,7 @@ cout << "dmin " << dmin << endl;
 
 	spatialdistr = sqb( nx, ny, nz );
 
-cout << "SpatialDistribution " << endl << spatialdistr << endl;
+cout << "SpatialDistribution " << "\n" << spatialdistr << "\n";
 
 	//#pragma omp parallel
 	//{
@@ -1472,7 +1358,7 @@ void bvh_xyzm2::spatialpartitioning_deformedrve_perform()
 					targetbin[c] = binning_xyz( cache[c] );
 //cout << targetbin[c] << "__";
 				}
-//cout << endl;
+//cout << "\n";
 
 				//check if still i places free in buffer construct, if so store results
 				if ( mybuffer.back()->size() < (Performance::ThreadBufferAllocSize - static_cast<size_t>(i)) ) {
@@ -1687,9 +1573,11 @@ bvh_p3dm1::~bvh_p3dm1()
 
 void bvh_p3dm1::spatialpartitioning_init()
 {
-cout << "Building bvh_p3dm1 " << endl;
+cout << "Building bvh_p3dm1 " << "\n";
+
 	owin.scale();
-cout << "owin " << owin << endl;
+
+//cout << "owin " << owin << "\n";
 	//see comments in bvh_xyzm2, owin is an AABB about all perips and uips
 
 /*
@@ -1699,14 +1587,14 @@ cout << "owin " << owin << endl;
 
 	//minimum dimension of owin
 	real_xyz dmin = min(min(dx,dy),dz);
-cout << "dmin " << dmin << endl;
+cout << "dmin " << dmin << "\n";
 
 	//estimate partitioning, we utilize this BVH space partitioning for the DBScan and the Voxelization
 */
 
 	//MK::bin covering edge length of at least MaxKernelRadius
 	real_xyz MaxKernelRadius = max(Settings::DBScanKernelRadius, Settings::PVTessKernelRadius);
-cout << "maxkernelr " << MaxKernelRadius << endl;
+cout << "MaxKernelRadius " << MaxKernelRadius << "\n";
 
 	//size_t nx = static_cast<unsigned int>( ((dmin / MaxKernelRadius) * dx) + 1.0 + EPSILON);
 	//size_t ny = static_cast<unsigned int>( ((dmin / MaxKernelRadius) * dy) + 1.0 + EPSILON);
@@ -1717,7 +1605,7 @@ cout << "maxkernelr " << MaxKernelRadius << endl;
 
 	spatialdistr = sqb( nx, ny, nz );
 
-cout << "SpatialDistribution " << endl << spatialdistr << endl;
+cout << "SpatialDistribution " << "\n" << spatialdistr << "\n";
 
 	//#pragma omp parallel
 	//{
@@ -1765,6 +1653,7 @@ inline unsigned int bvh_p3dm1::binning_x( const real_xyz x )
 	//##MK::requires optimization
 	//performing binning with rectangular transfer function
 	real_xyz tmpreal = (x - owin.xmi) / (owin.xmx - owin.xmi) * static_cast<real_xyz>(spatialdistr.nx);
+	//##MK::silently discards unsigned int range overflow	
 	unsigned int tmpui = ( tmpreal >= 0.0 ) ? static_cast<real_xyz>(tmpreal) : 0;
 	unsigned int xx = ( tmpui < spatialdistr.nx ) ? tmpui : spatialdistr.nx-1;
 	return xx;
@@ -1836,21 +1725,20 @@ nbp3d bvh_p3dm1::find_nearest_neighbor( const p3d p, real_xyz r )
 				unsigned int b = xx + yy*spatialdistr.nx + zz*spatialdistr.nxy;
 
 				vector<p3dm2>* thesepnts = pp3_points.at(b);
-
+				/* classical formulation without iterators
 				for (size_t i = 0; i < thesepnts->size(); ++i) {
 
 					real_xyz dSQR = SQR( (*thesepnts)[i].x - p.x) + SQR((*thesepnts)[i].y - p.y) + SQR((*thesepnts)[i].z - p.z);
 
 					if ( dSQR <= dSQRKRadius ) { //inside spherical region 52%
-						/*
-						//however that it is also the closest is very unlikely ##so potential optimization potential
-						//if ( dSQR > closestSQRDistance) {
-						//	continue;
-						//}
-						////implicit else
-						//closestSQRDistance = dSQR;
-						//closestM1 = (*these)[i].m1;
-						*/
+
+						// //however that it is also the closest is very unlikely ##so potential optimization potential
+						// //if ( dSQR > closestSQRDistance) {
+						// //	continue;
+						// //}
+						// ////implicit else
+						// //closestSQRDistance = dSQR;
+						// //closestM1 = (*these)[i].m1;
 
 						//##MK for now better take the safe solution
 						if ( dSQR <= dSQRKRadius && dSQR <= closestSQRDistance ) {
@@ -1861,6 +1749,22 @@ nbp3d bvh_p3dm1::find_nearest_neighbor( const p3d p, real_xyz r )
 						}
 					}
 				} //next point bucket
+				*/
+				//iterator based formulation
+				for ( auto it = thesepnts->begin(); it != thesepnts->end(); it++ ) {
+
+					real_xyz dSQR = SQR( it->x - p.x) + SQR(it->y - p.y) + SQR(it->z - p.z);
+
+					if ( dSQR <= dSQRKRadius ) { //inside spherical region 52%
+						if ( dSQR <= closestSQRDistance ) {
+							closestSQRDistance = dSQR;
+							closestM1 = it->m1;
+							closestPoint = p3d( it->x, it->y, it->z );
+							closestRepYesOrNo = it->m2;
+						}
+					}
+				} //next point bucket
+
 			} //next xline of cells
 		} //next xyslab of cells
 	} //done checking intruded cells
@@ -1919,13 +1823,13 @@ grainpool::~grainpool()
 
 void grainpool::build(vector<unsigned int> const & ip2gr)
 {
-//cout << "Building grainpool..." << endl;
+//cout << "Building grainpool..." << "\n";
 	//find unique grain ids
 	set<unsigned int> unique(ip2gr.begin(), ip2gr.end());
 
 	size_t ngrains = unique.size();
 
-cout << "UniqueGrainIDs " << ngrains << endl;
+cout << "UniqueGrainIDs " << ngrains << "\n";
 
 	//##MK::thread parallel grain processing
 	//##MK::pragma omp parallel shared(unique)
@@ -1944,7 +1848,7 @@ cout << "UniqueGrainIDs " << ngrains << endl;
 		}
 	}
 
-//cout << "IPSupport allocated" << endl;
+//cout << "IPSupport allocated" << "\n";
 
 	//identify ip to grain ownership
 	unsigned int neip = static_cast<unsigned int>(ip2gr.size()); //MK::must be head.NXYZ for 117 elements
@@ -1957,19 +1861,68 @@ cout << "UniqueGrainIDs " << ngrains << endl;
 	//#pragma omp parallel
 	for(size_t gr = 0; gr < ngrains; ++gr) {
 		unsigned int cnts = 0;
-		vector<quat> iporis;
+		vector<squat> iporis;
 		vector<unsigned int>* these = ipsupport.at(gr);
 		for(size_t i = 0; i < these->size(); ++i) {
 			cnts++;
 			iporis.push_back( owner->eid2quaternion(these->at(i)) ); //##MK::memory access inefficient because random...
 		}
 
+		/* ##MK::doesnt do anything so far
 		quatcloud res = quaternioncloud_characterize( iporis );
-		quat qmean = quat( res.qm0, res.qm1, res.qm2, res.qm3 );
+		squat qmean = quat( res.qm0, res.qm1, res.qm2, res.qm3 );
+		*/
+
+		//squat qmean = squat();
+
+		//##MK::debugging to understand why Louvain community detection fuses grains already
+		//in the initial stage
+		//pass orientation of first supporting material point for each grain
+		//then we can compute a upper triangle matrix of all possible grain to grain
+		//disorientations for the undeformed configuration and therefore identify if there are spurious
+		//low disoriented grains which then of course a Louvain algorithm would group together
+		//spurious low disoriented grains can happen if we sample a random ODF
+		//it is not likely in particular not that then these guys are also spatial neighbors but it is possible
+		//and we need to exclude this
+		squat qmean = squat();
+
+		if ( these != NULL ) {
+			qmean = owner->eid2quaternion(these->at(0));
+		}
+		else {
+cerr << "these == NULL, assigning default qmean!" << "\n";
+		}
 
 		//mean disorientation angle to grain mean --> aka grain reference orientation deviation (GROD)
 		polyxx.push_back( grain(qmean, gr, cnts) );
 	}
+}
+
+
+void grainpool::disori_uppertriangle_matrix()
+{
+	cout << "Evaluating upper triangle all-grain against all-grain disorientation angle matrix..." << "\n";
+	for( auto it = polyxx.begin(); it != polyxx.end(); it++ ) {
+		unsigned int gidit = it->gid;
+		squat qit = it->ori;
+		for( auto jt = polyxx.begin(); jt != polyxx.end(); jt++ ) {
+			unsigned int gidjt = jt->gid;
+			squat qjt = jt->ori;
+
+			if ( gidit > gidjt ) { //in most cases we evaluate
+				//compute disorientation and populate upper triangle matrix
+				squat qjt_minus1 = qjt.conjugate();
+				squat qcand = multiply_quaternion( qit, qjt_minus1 );
+				pair<ori_real,ori_real> theta = disorientation_angle_fcc_grimmer( qcand );
+
+				//report all critical (unexpected low) disorientations given that input should be from random odf
+				if ( RADIANT2DEGREE(theta.second) > 15.0 )
+					continue;
+				else
+					cout << gidit << "\t\t" << gidjt << "\t\t" << RADIANT2DEGREE(theta.second) << "\n";
+			}
+		} //next partner
+	} //next guy
 }
 
 
@@ -2185,6 +2138,8 @@ grGeomHdl::grGeomHdl()
 	localgrid = vxlgrd();
 	nuvxl = 0;
 
+	contour = microstructural_object();
+
 	//check through which tasks have been accomplished
 	alloc_success = true;
 	ips_success = true;
@@ -2265,7 +2220,12 @@ void grGeomHdl::compute_all_replica()
 	size_t uips_identified = ips.size();
 	size_t uips_expected = static_cast<size_t>(nuip); //#MK::was this->nuip
 
-cout << "Unique ips ident/expected/expected diff accstrategy " << uips_identified << "\t\t" << uips_expected << "\t\t" << static_cast<size_t>(owner->grains.polyxx.at(cgid).np) << endl;
+	/*
+	#pragma omp critical
+	{
+		cout << "Unique ips ident/expected/expected diff accstrategy " << uips_identified << "\t\t" << uips_expected << "\t\t" << static_cast<size_t>(owner->grains.polyxx.at(cgid).np) << "\n";
+	}
+	*/
 
 	//buffer replica p3d with reference to uniqueip generator as mark m1 in ips before spatially reorganizing
 	//ips into sparse bounded volume hierarchy (BVH) according to thread-synchronized globalbox
@@ -2305,7 +2265,7 @@ cout << "Unique ips ident/expected/expected diff accstrategy " << uips_identifie
 		zzz = zz + (h*per.a31 + k*per.a32 +	l*per.a33);
 		box.potentially_expand(xxx, yyy, zzz);
 		//if (xxx <= box.xmi) box.xmi = xxx; 	if (xxx >= box.xmx)	box.xmx = xxx;	if (yyy <= box.ymi) box.ymi = yyy;	if (yyy >= box.ymx)	box.ymx = yyy;	if (zzz <= box.zmi) box.zmi = zzz;	if (zzz >= box.zmx)	box.zmx = zzz;
-//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << endl; }
+//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << "\n"; }
 		ips.push_back(p3dm1(xxx, yyy, zzz, mark));
 		//[-1+0+0], 0x0d
 		h = -1.0;		k = +0.0;		l = +0.0;
@@ -2314,7 +2274,7 @@ cout << "Unique ips ident/expected/expected diff accstrategy " << uips_identifie
 		zzz = zz + (h*per.a31 + k*per.a32 +	l*per.a33);
 		box.potentially_expand(xxx, yyy, zzz);
 		//if (xxx <= box.xmi) box.xmi = xxx; 	if (xxx >= box.xmx)	box.xmx = xxx;	if (yyy <= box.ymi) box.ymi = yyy;	if (yyy >= box.ymx)	box.ymx = yyy;	if (zzz <= box.zmi) box.zmi = zzz;	if (zzz >= box.zmx)	box.zmx = zzz;
-//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << endl; }
+//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << "\n"; }
 		ips.push_back(p3dm1(xxx, yyy, zzz, mark));
 		//[+0+1+0], 0x10
 		h = +0.0;		k = +1.0;		l = +0.0;
@@ -2323,7 +2283,7 @@ cout << "Unique ips ident/expected/expected diff accstrategy " << uips_identifie
 		zzz = zz + (h*per.a31 + k*per.a32 +	l*per.a33);
 		box.potentially_expand(xxx, yyy, zzz);
 		//if (xxx <= box.xmi) box.xmi = xxx; 	if (xxx >= box.xmx)	box.xmx = xxx;	if (yyy <= box.ymi) box.ymi = yyy;	if (yyy >= box.ymx)	box.ymx = yyy;	if (zzz <= box.zmi) box.zmi = zzz;	if (zzz >= box.zmx)	box.zmx = zzz;
-//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << endl; }
+//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << "\n"; }
 		ips.push_back(p3dm1(xxx, yyy, zzz, mark));
 		//[+0-1+0], 0x0b
 		h = +0.0;		k = -1.0;		l = +0.0;
@@ -2332,7 +2292,7 @@ cout << "Unique ips ident/expected/expected diff accstrategy " << uips_identifie
 		zzz = zz + (h*per.a31 + k*per.a32 +	l*per.a33);
 		box.potentially_expand(xxx, yyy, zzz);
 		//if (xxx <= box.xmi) box.xmi = xxx; 	if (xxx >= box.xmx)	box.xmx = xxx;	if (yyy <= box.ymi) box.ymi = yyy;	if (yyy >= box.ymx)	box.ymx = yyy;	if (zzz <= box.zmi) box.zmi = zzz;	if (zzz >= box.zmx)	box.zmx = zzz;
-//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << endl; }
+//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << "\n"; }
 		ips.push_back(p3dm1(xxx, yyy, zzz, mark));
 		//[+0+0+1], 0x16
 		h = +0.0;		k = +0.0;		l = +1.0;
@@ -2341,7 +2301,7 @@ cout << "Unique ips ident/expected/expected diff accstrategy " << uips_identifie
 		zzz = zz + (h*per.a31 + k*per.a32 +	l*per.a33);
 		box.potentially_expand(xxx, yyy, zzz);
 		//if (xxx <= box.xmi) box.xmi = xxx; 	if (xxx >= box.xmx)	box.xmx = xxx;	if (yyy <= box.ymi) box.ymi = yyy;	if (yyy >= box.ymx)	box.ymx = yyy;	if (zzz <= box.zmi) box.zmi = zzz;	if (zzz >= box.zmx)	box.zmx = zzz;
-//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << endl; }
+//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << "\n"; }
 		ips.push_back(p3dm1(xxx, yyy, zzz, mark));
 		//[+0+0-1], 0x05
 		h = +0.0;		k = +0.0;		l = -1.0;
@@ -2350,7 +2310,7 @@ cout << "Unique ips ident/expected/expected diff accstrategy " << uips_identifie
 		zzz = zz + (h*per.a31 + k*per.a32 +	l*per.a33);
 		box.potentially_expand(xxx, yyy, zzz);
 		//if (xxx <= box.xmi) box.xmi = xxx; 	if (xxx >= box.xmx)	box.xmx = xxx;	if (yyy <= box.ymi) box.ymi = yyy;	if (yyy >= box.ymx)	box.ymx = yyy;	if (zzz <= box.zmi) box.zmi = zzz;	if (zzz >= box.zmx)	box.zmx = zzz;
-//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << endl; }
+//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << "\n"; }
 		ips.push_back(p3dm1(xxx, yyy, zzz, mark));
 		//<110>
 		//[+1+1+0], 0x11
@@ -2358,7 +2318,7 @@ cout << "Unique ips ident/expected/expected diff accstrategy " << uips_identifie
 		xxx = xx + (h*per.a11 + k*per.a12 +	l*per.a13);
 		yyy = yy + (h*per.a21 + k*per.a22 + l*per.a23);
 		zzz = zz + (h*per.a31 + k*per.a32 +	l*per.a33);
-//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << endl; }
+//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << "\n"; }
 		ips.push_back(p3dm1(xxx, yyy, zzz, mark));
 		//[-1+1+0], 0x0f
 		h = -1.0;		k = +1.0;		l = +0.0;
@@ -2367,7 +2327,7 @@ cout << "Unique ips ident/expected/expected diff accstrategy " << uips_identifie
 		zzz = zz + (h*per.a31 + k*per.a32 +	l*per.a33);
 		box.potentially_expand(xxx, yyy, zzz);
 		//if (xxx <= box.xmi) box.xmi = xxx; 	if (xxx >= box.xmx)	box.xmx = xxx;	if (yyy <= box.ymi) box.ymi = yyy;	if (yyy >= box.ymx)	box.ymx = yyy;	if (zzz <= box.zmi) box.zmi = zzz;	if (zzz >= box.zmx)	box.zmx = zzz;
-//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << endl; }
+//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << "\n"; }
 		ips.push_back(p3dm1(xxx, yyy, zzz, mark));
 		//[+1-1+0], 0x0c
 		h = +1.0;		k = -1.0;		l = +0.0;
@@ -2376,7 +2336,7 @@ cout << "Unique ips ident/expected/expected diff accstrategy " << uips_identifie
 		zzz = zz + (h*per.a31 + k*per.a32 +	l*per.a33);
 		box.potentially_expand(xxx, yyy, zzz);
 		//if (xxx <= box.xmi) box.xmi = xxx; 	if (xxx >= box.xmx)	box.xmx = xxx;	if (yyy <= box.ymi) box.ymi = yyy;	if (yyy >= box.ymx)	box.ymx = yyy;	if (zzz <= box.zmi) box.zmi = zzz;	if (zzz >= box.zmx)	box.zmx = zzz;
-//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << endl; }
+//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << "\n"; }
 		ips.push_back(p3dm1(xxx, yyy, zzz, mark));
 		//[-1-1+0], 0x0a
 		h = -1.0;		k = -1.0;		l = +0.0;
@@ -2385,7 +2345,7 @@ cout << "Unique ips ident/expected/expected diff accstrategy " << uips_identifie
 		zzz = zz + (h*per.a31 + k*per.a32 +	l*per.a33);
 		box.potentially_expand(xxx, yyy, zzz);
 		//if (xxx <= box.xmi) box.xmi = xxx; 	if (xxx >= box.xmx)	box.xmx = xxx;	if (yyy <= box.ymi) box.ymi = yyy;	if (yyy >= box.ymx)	box.ymx = yyy;	if (zzz <= box.zmi) box.zmi = zzz;	if (zzz >= box.zmx)	box.zmx = zzz;
-//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << endl; }
+//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << "\n"; }
 		ips.push_back(p3dm1(xxx, yyy, zzz, mark));
 		//[+0+1+1], 0x19
 		h = +0.0;		k = +1.0;		l = +1.0;
@@ -2394,7 +2354,7 @@ cout << "Unique ips ident/expected/expected diff accstrategy " << uips_identifie
 		zzz = zz + (h*per.a31 + k*per.a32 +	l*per.a33);
 		box.potentially_expand(xxx, yyy, zzz);
 		//if (xxx <= box.xmi) box.xmi = xxx; 	if (xxx >= box.xmx)	box.xmx = xxx;	if (yyy <= box.ymi) box.ymi = yyy;	if (yyy >= box.ymx)	box.ymx = yyy;	if (zzz <= box.zmi) box.zmi = zzz;	if (zzz >= box.zmx)	box.zmx = zzz;
-//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << endl; }
+//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << "\n"; }
 		ips.push_back(p3dm1(xxx, yyy, zzz, mark));
 		//[+0-1+1], 0x13
 		h = +0.0;		k = -1.0;		l = +1.0;
@@ -2403,7 +2363,7 @@ cout << "Unique ips ident/expected/expected diff accstrategy " << uips_identifie
 		zzz = zz + (h*per.a31 + k*per.a32 +	l*per.a33);
 		box.potentially_expand(xxx, yyy, zzz);
 		//if (xxx <= box.xmi) box.xmi = xxx; 	if (xxx >= box.xmx)	box.xmx = xxx;	if (yyy <= box.ymi) box.ymi = yyy;	if (yyy >= box.ymx)	box.ymx = yyy;	if (zzz <= box.zmi) box.zmi = zzz;	if (zzz >= box.zmx)	box.zmx = zzz;
-//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << endl; }
+//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << "\n"; }
 		ips.push_back(p3dm1(xxx, yyy, zzz, mark));
 		//[+0+1-1], 0x08
 		h = +0.0;		k = +1.0;		l = -1.0;
@@ -2412,7 +2372,7 @@ cout << "Unique ips ident/expected/expected diff accstrategy " << uips_identifie
 		zzz = zz + (h*per.a31 + k*per.a32 +	l*per.a33);
 		box.potentially_expand(xxx, yyy, zzz);
 		//if (xxx <= box.xmi) box.xmi = xxx; 	if (xxx >= box.xmx)	box.xmx = xxx;	if (yyy <= box.ymi) box.ymi = yyy;	if (yyy >= box.ymx)	box.ymx = yyy;	if (zzz <= box.zmi) box.zmi = zzz;	if (zzz >= box.zmx)	box.zmx = zzz;
-//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << endl; }
+//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << "\n"; }
 		ips.push_back(p3dm1(xxx, yyy, zzz, mark));
 		//[+0-1-1], 0x02
 		h = +0.0;		k = -1.0;		l = -1.0;
@@ -2421,7 +2381,7 @@ cout << "Unique ips ident/expected/expected diff accstrategy " << uips_identifie
 		zzz = zz + (h*per.a31 + k*per.a32 +	l*per.a33);
 		box.potentially_expand(xxx, yyy, zzz);
 		//if (xxx <= box.xmi) box.xmi = xxx; 	if (xxx >= box.xmx)	box.xmx = xxx;	if (yyy <= box.ymi) box.ymi = yyy;	if (yyy >= box.ymx)	box.ymx = yyy;	if (zzz <= box.zmi) box.zmi = zzz;	if (zzz >= box.zmx)	box.zmx = zzz;
-//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << endl; }
+//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << "\n"; }
 		ips.push_back(p3dm1(xxx, yyy, zzz, mark));
 		//[+1+0+1], 0x17
 		h = +1.0;		k = +0.0;		l = +1.0;
@@ -2430,7 +2390,7 @@ cout << "Unique ips ident/expected/expected diff accstrategy " << uips_identifie
 		zzz = zz + (h*per.a31 + k*per.a32 +	l*per.a33);
 		box.potentially_expand(xxx, yyy, zzz);
 		//if (xxx <= box.xmi) box.xmi = xxx; 	if (xxx >= box.xmx)	box.xmx = xxx;	if (yyy <= box.ymi) box.ymi = yyy;	if (yyy >= box.ymx)	box.ymx = yyy;	if (zzz <= box.zmi) box.zmi = zzz;	if (zzz >= box.zmx)	box.zmx = zzz;
-//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << endl; }
+//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << "\n"; }
 		ips.push_back(p3dm1(xxx, yyy, zzz, mark));
 		//[-1+0+1], 0x15
 		h = -1.0;		k = +0.0;		l = +1.0;
@@ -2439,7 +2399,7 @@ cout << "Unique ips ident/expected/expected diff accstrategy " << uips_identifie
 		zzz = zz + (h*per.a31 + k*per.a32 +	l*per.a33);
 		box.potentially_expand(xxx, yyy, zzz);
 		//if (xxx <= box.xmi) box.xmi = xxx; 	if (xxx >= box.xmx)	box.xmx = xxx;	if (yyy <= box.ymi) box.ymi = yyy;	if (yyy >= box.ymx)	box.ymx = yyy;	if (zzz <= box.zmi) box.zmi = zzz;	if (zzz >= box.zmx)	box.zmx = zzz;
-//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << endl; }
+//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << "\n"; }
 		ips.push_back(p3dm1(xxx, yyy, zzz, mark));
 		//[+1+0-1], 0x06
 		h = +1.0;		k = +0.0;		l = -1.0;
@@ -2448,7 +2408,7 @@ cout << "Unique ips ident/expected/expected diff accstrategy " << uips_identifie
 		zzz = zz + (h*per.a31 + k*per.a32 +	l*per.a33);
 		box.potentially_expand(xxx, yyy, zzz);
 		//if (xxx <= box.xmi) box.xmi = xxx; 	if (xxx >= box.xmx)	box.xmx = xxx;	if (yyy <= box.ymi) box.ymi = yyy;	if (yyy >= box.ymx)	box.ymx = yyy;	if (zzz <= box.zmi) box.zmi = zzz;	if (zzz >= box.zmx)	box.zmx = zzz;
-//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << endl; }
+//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << "\n"; }
 		ips.push_back(p3dm1(xxx, yyy, zzz, mark));
 		//[-1+0-1], 0x04
 		h = -1.0;		k = +0.0;		l = -1.0;
@@ -2457,7 +2417,7 @@ cout << "Unique ips ident/expected/expected diff accstrategy " << uips_identifie
 		zzz = zz + (h*per.a31 + k*per.a32 +	l*per.a33);
 		box.potentially_expand(xxx, yyy, zzz);
 		//if (xxx <= box.xmi) box.xmi = xxx; 	if (xxx >= box.xmx)	box.xmx = xxx;	if (yyy <= box.ymi) box.ymi = yyy;	if (yyy >= box.ymx)	box.ymx = yyy;	if (zzz <= box.zmi) box.zmi = zzz;	if (zzz >= box.zmx)	box.zmx = zzz;
-//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << endl; }
+//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << "\n"; }
 		ips.push_back(p3dm1(xxx, yyy, zzz, mark));
 		//<111>
 		//[+1+1+1], 0x1a
@@ -2467,7 +2427,7 @@ cout << "Unique ips ident/expected/expected diff accstrategy " << uips_identifie
 		zzz = zz + (h*per.a31 + k*per.a32 +	l*per.a33);
 		box.potentially_expand(xxx, yyy, zzz);
 		//if (xxx <= box.xmi) box.xmi = xxx; 	if (xxx >= box.xmx)	box.xmx = xxx;	if (yyy <= box.ymi) box.ymi = yyy;	if (yyy >= box.ymx)	box.ymx = yyy;	if (zzz <= box.zmi) box.zmi = zzz;	if (zzz >= box.zmx)	box.zmx = zzz;
-//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << endl; }
+//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << "\n"; }
 		ips.push_back(p3dm1(xxx, yyy, zzz, mark));
 		//[-1+1+1], 0x18
 		h = -1.0;		k = +1.0;		l = +1.0;
@@ -2476,7 +2436,7 @@ cout << "Unique ips ident/expected/expected diff accstrategy " << uips_identifie
 		zzz = zz + (h*per.a31 + k*per.a32 +	l*per.a33);
 		box.potentially_expand(xxx, yyy, zzz);
 		//if (xxx <= box.xmi) box.xmi = xxx; 	if (xxx >= box.xmx)	box.xmx = xxx;	if (yyy <= box.ymi) box.ymi = yyy;	if (yyy >= box.ymx)	box.ymx = yyy;	if (zzz <= box.zmi) box.zmi = zzz;	if (zzz >= box.zmx)	box.zmx = zzz;
-//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << endl; }
+//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << "\n"; }
 		ips.push_back(p3dm1(xxx, yyy, zzz, mark));
 		//[+1-1+1], 0x14
 		h = +1.0;		k = -1.0;		l = +1.0;
@@ -2485,7 +2445,7 @@ cout << "Unique ips ident/expected/expected diff accstrategy " << uips_identifie
 		zzz = zz + (h*per.a31 + k*per.a32 +	l*per.a33);
 		box.potentially_expand(xxx, yyy, zzz);
 		//if (xxx <= box.xmi) box.xmi = xxx; 	if (xxx >= box.xmx)	box.xmx = xxx;	if (yyy <= box.ymi) box.ymi = yyy;	if (yyy >= box.ymx)	box.ymx = yyy;	if (zzz <= box.zmi) box.zmi = zzz;	if (zzz >= box.zmx)	box.zmx = zzz;
-//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << endl; }
+//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << "\n"; }
 		ips.push_back(p3dm1(xxx, yyy, zzz, mark));
 		//[+1+1-1], 0x09
 		h = +1.0;		k = +1.0;		l = -1.0;
@@ -2494,7 +2454,7 @@ cout << "Unique ips ident/expected/expected diff accstrategy " << uips_identifie
 		zzz = zz + (h*per.a31 + k*per.a32 +	l*per.a33);
 		box.potentially_expand(xxx, yyy, zzz);
 		//if (xxx <= box.xmi) box.xmi = xxx; 	if (xxx >= box.xmx)	box.xmx = xxx;	if (yyy <= box.ymi) box.ymi = yyy;	if (yyy >= box.ymx)	box.ymx = yyy;	if (zzz <= box.zmi) box.zmi = zzz;	if (zzz >= box.zmx)	box.zmx = zzz;
-//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << endl; }
+//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << "\n"; }
 		ips.push_back(p3dm1(xxx, yyy, zzz, mark));
 		//[+1-1-1], 0x03
 		h = +1.0;		k = -1.0;		l = -1.0;
@@ -2503,7 +2463,7 @@ cout << "Unique ips ident/expected/expected diff accstrategy " << uips_identifie
 		zzz = zz + (h*per.a31 + k*per.a32 +	l*per.a33);
 		box.potentially_expand(xxx, yyy, zzz);
 		//if (xxx <= box.xmi) box.xmi = xxx; 	if (xxx >= box.xmx)	box.xmx = xxx;	if (yyy <= box.ymi) box.ymi = yyy;	if (yyy >= box.ymx)	box.ymx = yyy;	if (zzz <= box.zmi) box.zmi = zzz;	if (zzz >= box.zmx)	box.zmx = zzz;
-//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << endl; }
+//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << "\n"; }
 		ips.push_back(p3dm1(xxx, yyy, zzz, mark));
 		//[-1+1-1], 0x07
 		h = -1.0;		k = +1.0;		l = -1.0;
@@ -2512,7 +2472,7 @@ cout << "Unique ips ident/expected/expected diff accstrategy " << uips_identifie
 		zzz = zz + (h*per.a31 + k*per.a32 +	l*per.a33);
 		box.potentially_expand(xxx, yyy, zzz);
 		//if (xxx <= box.xmi) box.xmi = xxx; 	if (xxx >= box.xmx)	box.xmx = xxx;	if (yyy <= box.ymi) box.ymi = yyy;	if (yyy >= box.ymx)	box.ymx = yyy;	if (zzz <= box.zmi) box.zmi = zzz;	if (zzz >= box.zmx)	box.zmx = zzz;
-//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << endl; }
+//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << "\n"; }
 		ips.push_back(p3dm1(xxx, yyy, zzz, mark));
 		//[-1-1+1], 0x12
 		h = -1.0;		k = -1.0;		l = +1.0;
@@ -2521,7 +2481,7 @@ cout << "Unique ips ident/expected/expected diff accstrategy " << uips_identifie
 		zzz = zz + (h*per.a31 + k*per.a32 +	l*per.a33);
 		box.potentially_expand(xxx, yyy, zzz);
 		//if (xxx <= box.xmi) box.xmi = xxx; 	if (xxx >= box.xmx)	box.xmx = xxx;	if (yyy <= box.ymi) box.ymi = yyy;	if (yyy >= box.ymx)	box.ymx = yyy;	if (zzz <= box.zmi) box.zmi = zzz;	if (zzz >= box.zmx)	box.zmx = zzz;
-//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << endl; }
+//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << "\n"; }
 		ips.push_back(p3dm1(xxx, yyy, zzz, mark));
 		//[-1-1-1], 0x01
 		h = -1.0;		k = -1.0;		l = -1.0;
@@ -2530,26 +2490,30 @@ cout << "Unique ips ident/expected/expected diff accstrategy " << uips_identifie
 		zzz = zz + (h*per.a31 + k*per.a32 +	l*per.a33);
 		box.potentially_expand(xxx, yyy, zzz);
 		//if (xxx <= box.xmi) box.xmi = xxx; 	if (xxx >= box.xmx)	box.xmx = xxx;	if (yyy <= box.ymi) box.ymi = yyy;	if (yyy >= box.ymx)	box.ymx = yyy;	if (zzz <= box.zmi) box.zmi = zzz;	if (zzz >= box.zmx)	box.zmx = zzz;
-//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << endl; }
+//if ( debug_duplicate_check(xxx,yyy,zzz) == true ) { cout << "ADDING DUPLICATE POINT FOR GRAIN " << cgid << "\n"; }
 		ips.push_back(p3dm1(xxx, yyy, zzz, mark));
 	} //all these perips support periodic replica fragments of the periodic images of grain gr
+
+	box.add_guardzone( EPSILON );
+	box.scale();
 
 	localbox = box;
 	localbox.scale();
 
-
 	//##MK::DEBUG if ( Settings::VisPeriodicReplicaIPs == 0 || Settings::VisPeriodicReplicaIPs == (cgid + 1) ) {
 
 	//##MK::thread writing file with different name than any other thread (disjoint grainIDs) therefore can be done in parallel, but of course may not be efficient when only one harddrive
-	if ( Settings::VisPeriodicReplicaIPs == (cgid+1) ) { //##MK::DEBUG overwrite
+	if ( Settings::VisPeriodicReplicaIPs == (cgid+1) ) { //##MK::DEBUG overwrite, +1 to go from C to Fortran indexing
 		string different_than_otherthreads = "RVE27IPsGrainID" + to_string(cgid);
 		bool status = vtk_p3dm1( ips, cgid, owner->thisincrement, different_than_otherthreads );
 	}
 
+	/*
 	#pragma omp critical
 	{
-cout << "Total ips for grain " << cgid << " are " << ips.size() << endl;
+		cout << "Total ips for grain " << cgid << " are " << ips.size() << "\n";
 	}
+	*/
 }
 
 
@@ -2585,10 +2549,12 @@ void grGeomHdl::build_sparse_bvh()
 
 	vector<unsigned int> i2bin;
 	for (size_t i = 0; i < ips.size(); ++i ) {
-		p3d p = p3d( ips.at(i).x, ips.at(i).y, ips.at(i).z );
+		p3d p = p3d( ips[i].x, ips[i].y, ips[i].z );
+
 		unsigned int b = owner->pp3rve27.binning_xyz(p);
+
 		i2bin.push_back( b );
-//cout << "gr/ipid/p/b\t\t" << cgid << "\t\t" << i << "\t\t" << b << "\t\t" << p << endl;
+//cout << "gr/ipid/p/b\t\t" << cgid << "\t\t" << i << "\t\t" << b << "\t\t" << p << "\n";
 		sbvh_points.push_back(p3d());
 		sbvh_uipref.push_back(numeric_limits<unsigned int>::max());
 		sbvh_isrepresentative.push_back(static_cast<unsigned char>(NO));
@@ -2611,8 +2577,8 @@ void grGeomHdl::build_sparse_bvh()
 	//binIDs are not consecutive hence we need an indexing structure
 	//that tells us where we find the p3d's in that bin
 
-	//##MK::future optimization may eradicate some these redundant but safe maps
-	//which for now aiom first to assure a correctly working algorithm
+	//##MK::future optimization may eradicate some these redundant but hyperphobic maps
+	//which for now aim first to assure a correctly working algorithm
 	map<unsigned int, size_t> cnts_start;
 	map<unsigned int, size_t> cnts_end; //cumulate cnts
 	map<unsigned int, size_t> cnts_trsfd; //how many already transferred?
@@ -2620,14 +2586,15 @@ void grGeomHdl::build_sparse_bvh()
 	size_t startidx = 0;
 	size_t endidx = 0;
 	map<unsigned int, size_t>::iterator it = cnts.begin();
-//cout << "sparseBinCnts on grain " << cgid << endl;
+//cout << "sparseBinCnts on grain " << cgid << "\n";
 	while( it != cnts.end()) { //traversing along indexing structure by standard and see above comment sweeps ascendingly
-//cout << "binID/cnts " << it->first << "\t\t" << it->second << endl;
-		cnts_start.insert(make_pair(it->first, startidx));
+//cout << "binID/cnts " << it->first << "\t\t" << it->second << "\n";
+		unsigned int key = it->first;
+		cnts_start.insert(make_pair(key, startidx));
 		endidx = startidx + it->second;
-		cnts_end.insert(make_pair(it->first, endidx));
+		cnts_end.insert(make_pair(key, endidx));
 		startidx = startidx + it->second;
-		cnts_trsfd.insert(make_pair(it->first, 0));
+		cnts_trsfd.insert(make_pair(key, 0));
 		it++;
 	}
 
@@ -2636,39 +2603,44 @@ void grGeomHdl::build_sparse_bvh()
 		unsigned int key = it->first;
 		sbvhrange tmp = sbvhrange( cnts_start[key], cnts_end[key]);
 		sbvh_locator.insert(make_pair(key, tmp));
-//cout << "binID/idxs/idxe " << key << "\t\t" << sbvh_locator.find(key)->second.startidx << "\t\t" << sbvh_locator.find(key)->second.pastendidx << endl;
+//cout << "binID/idxs/idxe " << key << "\t\t" << sbvh_locator.find(key)->second.startidx << "\t\t" << sbvh_locator.find(key)->second.pastendidx << "\n";
  		it++;
 	}
 
+/*
 //##MK::BEGIN DEBUG
 	map<unsigned int, sbvhrange>::iterator jt = sbvh_locator.begin();
 	while (jt != sbvh_locator.end()) {
-//cout << "binID/Range[/) " << jt->first << "\t\t" << jt->second.startidx << ";" << jt->second.pastendidx << endl;
+//cout << "binID/Range[/) " << jt->first << "\t\t" << jt->second.startidx << ";" << jt->second.pastendidx << "\n";
 		jt++;
 	}
 //##MK::END DEBUG
+*/
 
 	//fill sbvh with ips in ordered manner according to known binning
 	for(size_t i = 0; i < i2bin.size(); ++i ) {
 		unsigned int key = i2bin.at(i);
 		//##MK::add checks if key exists...
 		size_t pos = sbvh_locator[key].startidx + cnts_trsfd[key];
-		sbvh_points[pos] = p3d(ips[i].x, ips[i].y, ips[i].z); //transfer point coordinate and original uniqueip mark
+		sbvh_points[pos] = p3d(ips[i].x, ips[i].y, ips[i].z); //sbvh_points was already constructed...transfer point coordinate and original uniqueip mark
 		sbvh_uipref[pos] = ips[i].m1;
 		//we dont know yet which points of sbvh_points are in the representative cluster or not
 		cnts_trsfd[key]++;
 	}
 
-#pragma omp critical
-{
-	cout << "SparseBinningConstructed for grain " << cgid << endl;
-}
+	/*
+	#pragma omp critical
+	{
+		cout << "SparseBinningConstructed for grain " << cgid << "\n";
+	}
+	*/
 
 	//##MK::now at least technically ips is obsolete ips.clear();
 
 	//MK::ips no longer needed clear them and replace the associated potentially MB memory with single page fresh vector by swapping trick, MK::because std::vector<T>::clear only deletes content but does not give allocated pages back to OS
-	vector<p3dm1> dummy;
-	ips.swap( dummy );
+	ips = vector<p3dm1>();
+	/*vector<p3dm1> dummy;
+	ips.swap( dummy );*/
 }
 
 
@@ -2692,6 +2664,7 @@ void grGeomHdl::spatial_range_query_sbvh_noclear_nosort(const size_t thisip, vec
 	//idx, indices nbor_eip refer to positional information on sbvh[idx] on [0,size())
 
 	//##MK::implement checks a la //if ( r < CurrentKernelRadius && r > 0.0)
+
 	real_xyz R = r;
 
 	//MK::performs no clear on input!!
@@ -2702,7 +2675,8 @@ void grGeomHdl::spatial_range_query_sbvh_noclear_nosort(const size_t thisip, vec
 	p3d p = sbvh_points.at(thisip);
 	results.push_back(static_cast<unsigned int>(thisip));
 
-	//identify which cuboidal region of bins to check at all
+	//##MK::identify which cuboidal region of bins to check at all
+	//here likely frequent cache trashing because pulling back from aabb
 	unsigned int wxmi = owner->pp3rve27.binning_x(p.x-R); //imi
 	unsigned int wxmx = owner->pp3rve27.binning_x(p.x+R); //imx
 	unsigned int wymi = owner->pp3rve27.binning_y(p.y-R);
@@ -2729,7 +2703,7 @@ void grGeomHdl::spatial_range_query_sbvh_noclear_nosort(const size_t thisip, vec
 						real_xyz dSQR = SQR(sbvh_points[i].x-p.x) + SQR(sbvh_points[i].y-p.y) + SQR(sbvh_points[i].z-p.z);
 
 						if ( dSQR <= dSQRKRadius ) { //inside spherical region 52%, i.e. slightly the more likely case
-							if ( i != thisip ) { //most cases
+							if ( i != thisip ) { //the query center point gets not included!
 								results.push_back( static_cast<unsigned int>(i) ); //MK::i is an index on sbvh! ''MK::should be size_t instead of unsigned int
 							}
 						}
@@ -2743,7 +2717,7 @@ void grGeomHdl::spatial_range_query_sbvh_noclear_nosort(const size_t thisip, vec
 }
 
 
-void grGeomHdl::dbscan_ips2grreplicates( const real_xyz eps )
+void grGeomHdl::dbscan_ips2grreplicates1( const real_xyz eps )
 {
 	//CALLED FROM WITHIN PARALLEL REGION
 
@@ -2876,10 +2850,119 @@ void grGeomHdl::dbscan_ips2grreplicates( const real_xyz eps )
 		bool status = vtk_p3dm1( sbvh_points, lbl, cgid, owner->thisincrement, different_than_otherthreads);
 	}
 
-#pragma omp critical
-{
-	cout << "DBScanPerformed for grain " << cgid << endl;
+	/*
+	#pragma omp critical
+	{
+		cout << "DBScanPerformed for grain " << cgid << "\n";
+	}
+	*/
+
+	//cleanup
+	/*if ( visited != NULL ) { delete [] visited; visited = NULL; }
+	if ( labels != NULL ) { delete [] labels; labels = NULL; }*/
 }
+
+
+void grGeomHdl::dbscan_ips2grreplicates2( const real_xyz eps )
+{
+	//CALLED FROM WITHIN PARALLEL REGION
+
+	//performing sequential DBScan at thread scale with thread/grain-class-local data structure
+	//thereby avoiding concurrency, critical sections, and reducing (if placement of grGeomHdl is in distant
+	//thread-local memory) false sharing
+	//other threads meanwhile do DBScanning on other grains also independently
+
+	//ips are the periodic replications + the potentially fragmented pieces of the grain cgid which
+	//in the original DAMASK simulation made contact with the boundary
+	//MK::lets call these fragments and replications of a grain "replicates"
+	//if the grain had no RVE domain boundary contact in total 27 replicates should exists in the Moore replication of the RVE1 uips
+	//if the grain lays in a corner of the RVE domain 8 replicates exists and so forth...
+	//never the less each replicated cluster ought to have the same number of supporting integrations as detected
+	//for the grain in the hierarchical community detection algorithm BUT
+	//MK::WARNING if grains PERIODICALLY WRAP AROUND THE ORIGINAL RVE DOMAIN (singlecrystalline, layer-stacks, etc...)
+	//these ought to be multiplied integer way in the RVE27, hence their number of ips an uint multiple of nuip
+
+	//anyhow we should now find the corresponding ips that sample the position of the replicates in 3D space
+	//by performing a clustering analysis. As we do not know in advance how many replicates to expect
+	//we cannot, though, apply a k-means-type clustering algorithm, instead we use DBScan...
+	//... M. Ester, H.-P. Kriegel, J. Sander, X. Xu: A density-based algorithm for discovering clusters in large
+	//spatial databases with noise, Proc. 2nd Int. Conf. Knowledge Discovery and Data Mining KDD-96, 1996
+
+	//original DBScan distinguishes noise, boundary points and core points. However, we are not interested in noise,
+	//there ought to be in fact no noise because all ips per grain belong to periodic fragments of that grain with ID cgid
+	//also we are not interested in whether an ip bounds a cluster
+
+	//we check so by defining a minimum ip distance eps to discern cluster
+	//we do not have to worry about grains being adjacent, thanks to the partiontioning of the problem at the grain
+	//scale the threadlocal ip sbvh does not contain any ips sampling/supporting adjacent grains in the polycrystal
+	//as as the second DBScan parameter we assume it suffices for the cluster to find at least one neighboring
+	//point in the eps, i.e. Settings::DBScanKernelRadius-ball
+
+	//string mess = "Implementation currently uses uint32 as labels
+	//thus be careful when working with >512^3 DAMASK domains";
+	if ( owner->head.NXYZ > static_cast<unsigned int>(300*300*300)) {
+		//complaining(mess, owner->get_myrank(), 0);
+		stopping("Implementation utilizes 32-bit labels may not work for so large domains", owner->get_myrank(), omp_get_thread_num());
+		dbscan_success = false; healthy = false; //#MK::was this->
+		return;
+	}
+	//DBscan implementation:: see for instance an implementation in https://github.lcom/propanoid/DBSCAN/blob/master/dbscan.cpp
+	//strictly speaking DBScan is formulated for a mean-field density instead here we utilize so to say space with Dirac spikes at the ips
+
+	//prepare cluster labels
+	vector<dbcontrol> lookup = vector<dbcontrol>( sbvh_points.size(), dbcontrol() );
+
+	vector<unsigned int> ipres;
+	vector<unsigned int> nboripres;
+
+	unsigned short clusterid = 0;
+	for( unsigned int ip = 0; ip < sbvh_points.size(); ip++) { //##MK::change unsigned int to size_t
+		if ( lookup.at(ip).visited == false ) {
+			lookup.at(ip).visited = true; //assume that current position belongs to a cluster
+			lookup.at(ip).label = clusterid;
+
+			ipres.clear();
+
+			spatial_range_query_sbvh_noclear_nosort( ip, ipres, eps );
+
+			//MK::given the specific problem of compact well clustered objects, there needs to be at least myself and one additional reference to an ip in ipres
+			//at least one more than me
+			size_t j = 0;
+			while ( j < ipres.size() ) {
+				unsigned int nborip = ipres.at(j); //##MK::was .nbor_eipid; //MK::index of an ip according to order in sbvh
+
+				if (lookup.at(nborip).visited == false) {
+					lookup.at(nborip).visited = true;
+					lookup.at(nborip).label = clusterid;
+
+					spatial_range_query_sbvh_noclear_nosort( nborip, ipres, eps);
+				} //do unless no further neighbor relations connected by distance <= eps are found
+				j++;
+			}
+
+			clusterid++;
+		} //done processing unvisited ip
+	} //proceed with next ip
+
+	//transfer labeling
+	//for(size_t i = 0; i < sbvh_points.size(); ++i) {
+	for(size_t i = 0; i < lookup.size(); ++i ) {
+		lbl.push_back( static_cast<unsigned int>(lookup[i].label) );
+	}
+
+	//##MK::thread writing file with different name than any other thread (disjoint grainIDs) therefore can be done in parallel, but of course may not be efficient when only one harddrive
+	if ( Settings::VisDBScanClusterIDs == (cgid+1) ) {
+		//if ( Settings::VisDBScanClusterIDs == 0 ) { //##MK::DEBUG overwritten
+		string different_than_otherthreads = "RVE27DBScanGrainID" + to_string(cgid);
+		bool status = vtk_p3dm1( sbvh_points, lbl, cgid, owner->thisincrement, different_than_otherthreads);
+	}
+
+	/*
+	#pragma omp critical
+	{
+		cout << "DBScanPerformed for grain " << cgid << "\n";
+	}
+	*/
 
 	//cleanup
 	/*if ( visited != NULL ) { delete [] visited; visited = NULL; }
@@ -2928,28 +3011,59 @@ void grGeomHdl::dbscan_pick_representative()
 	//find center of uip point cloud and number of uip of the grain this->cgid from the Louvain labeling algorithm
 	//aabb3d about uip deformed configuration with no guard zone
 	p3d rvecenter = owner->pp3rve1withguard.get_owindeformed().center();
+	//use leftmost corner
+	p3d rvecorner = p3d(
+			owner->pp3rve1withguard.get_owindeformed().xmi,
+			owner->pp3rve1withguard.get_owindeformed().ymi,
+			owner->pp3rve1withguard.get_owindeformed().zmi );
 
 	//how many uips with the same Louvain labeling algorithm ID
 	unsigned int nip_required = nuip;
 
-cout << "Pick representative of grain " << cgid << endl;
-cout << "nip_required/rvecenter " << nip_required << "\t\t" << rvecenter;
+//cout << "Pick representative of grain " << cgid << "\n";
+//cout << "nip_required/rvecenter " << nip_required << "\t\t" << rvecenter;
 	//what is the cluster closest to rvedomain center and is it complete in ips as expected?
+	aabb3d leftmost_box = aabb3d();
 	unsigned int bestvalidcid = numeric_limits<unsigned int>::max();
 	real_xyz bestdistance = numeric_limits<real_xyz>::max();
 
 	//find best candidate cluster by checking all, number of cluster typically a few dozens
-	for(size_t cid = 0; cid < dbscanres.size(); ++cid) {
-		dbscanres[cid].box.scale();
-		p3d cp = dbscanres[cid].box.center();
-
-		real_xyz dist = sqrt(SQR(cp.x-rvecenter.x)+SQR(cp.y-rvecenter.y)+SQR(cp.z-rvecenter.z));
 
 /*
-		//##MK::BEGIN DEBUG should be in critical section
-cout << "ClusterID/Center/Distance " << cid << "\t\t" << cp.x << ";" << cp.y << ";" << cp.z << "\t\t" << dist << endl;
-cout << "ClusterID/AABB " << cid << dbscanres[cid].box << endl;
-		//##MK::END DEBUG
+if ( cgid == 65 ) {
+	#pragma omp critical
+	{
+		cout << "In depth inspection DBScan results for grain 65" << "\n";
+	}
+}
+*/
+
+	for(size_t cid = 0; cid < dbscanres.size(); ++cid) {
+		dbscanres[cid].box.scale();
+
+		//p3d boxcenter = dbscanres[cid].box.center();
+
+		p3d boxcorner = p3d( 	dbscanres[cid].box.xmi,
+								dbscanres[cid].box.ymi,
+								dbscanres[cid].box.zmi );
+
+		//pick closest to RVE center
+		//real_xyz dist = sqrt(SQR(boxcenter.x-rvecenter.x)+SQR(boxcenter.y-rvecenter.y)+SQR(boxcenter.z-rvecenter.z));
+
+		//pick closest to RVE box corner
+		real_xyz dist = sqrt(SQR(boxcorner.x-rvecorner.x)+SQR(boxcorner.y-rvecorner.y)+SQR(boxcorner.z-rvecorner.z));
+
+/*
+if ( cgid == 65 ) {
+	#pragma omp critical
+	{
+		cout << "In depth inspection DBScan results for grain 65" << "\n";
+		cout << "Dist/bestdistance " << dist << "\t\t" << bestdistance << "\t\t" << bestvalidcid << "\n";
+		cout << "ClusterID/Center/Distance " << cid << "\t\t" << cp.x << ";" << cp.y << ";" << cp.z << "\t\t" << dist << "\n";
+		cout << "ClusterID/AABB " << cid << dbscanres[cid].box << "\n";
+		cout << "ClusterCnt " << dbscanres[cid].cnt << "\t\t" << nip_required << "\n";
+	}
+}
 */
 
 		if ( dist <= bestdistance && dbscanres[cid].cnt == nip_required ) {
@@ -2960,7 +3074,12 @@ cout << "ClusterID/AABB " << cid << dbscanres[cid].box << endl;
 
 	//most importantly: have we found such a cluster, meaning was the reconstruction, i.e. picking of one complete grain successful ?
 	if (bestvalidcid == numeric_limits<unsigned int>::max()) {
-cout << "Picking representative for grain " << cgid << " no cluster found!" << endl; //##MK::DEBUG use std:verbose functions
+		/*
+		#pragma omp critical
+		{
+			cout << "Picking representative cluster for grain " << cgid << "\n"; //##MK::DEBUG use std:verbose functions
+		}
+		*/
 		dbpick_success = false; healthy = false; //#MK::was this->
 		return;
 	}
@@ -2969,8 +3088,11 @@ cout << "Picking representative for grain " << cgid << " no cluster found!" << e
 	dbscanres[bestvalidcid].chosen = true;
 
 	grainfence = dbscanres[bestvalidcid].box;
+	//##MK::add guard?
 	grainfence.scale();
-cout << "Grain fence for grain " << cgid << " is " << endl << grainfence << endl;
+
+//cout << "Grain fence for grain " << cgid << " is " << "\n" << grainfence << "\n";
+
 	//filter out from all ips those sampling this replicate, i.e. thegrain, positions may live in RVE27
 	//for all grains during the DAMASK simulation making no domain boundary contact ought to be in RVE1 because closest to center was chosen
 	//and bounding boxes frame the entire RVE27
@@ -3009,7 +3131,6 @@ cout << "Grain fence for grain " << cgid << " is " << endl << grainfence << endl
 		} //done with checking ip assignment
 	}
 
-
 	//##MK::thread writing file with different name than any other thread (disjoint grainIDs) therefore can be done in parallel, but of course may not be efficient when only one harddrive
 	if ( Settings::VisReconstructedGrain == (cgid+1) ) {
 		//if( Settings::VisReconstructedGrain == 0 ) { //##MK::DEBUG overwrite
@@ -3017,12 +3138,16 @@ cout << "Grain fence for grain " << cgid << " is " << endl << grainfence << endl
 		bool status = vtk_p3d( thegrain, cgid, owner->thisincrement, different_than_otherthread);
 	}
 
-#pragma omp critical
-{
-	cout << "Picking representative for grain " << cgid << " clusterID/distance " << dbscanres[bestvalidcid].lid << "/" << bestdistance;
-	cout << " clusterCnts " << dbscanres[bestvalidcid].cnt << " should be " << nuip << endl;
-}
+	//##MK::inject reporting of representative replica barycenter
+	//######################
 
+	/*
+	#pragma omp critical
+	{
+		cout << "Picking representative for grain " << cgid << " clusterID/distance " << dbscanres[bestvalidcid].lid << "/" << bestdistance;
+		cout << " clusterCnts " << dbscanres[bestvalidcid].cnt << " should be " << nuip << "\n";
+	}
+	*/
 }
 
 
@@ -3049,9 +3174,9 @@ void grGeomHdl::build_localgrid()
 	if ( lzmx == numeric_limits<size_t>::max() ) { vxlinit_success = false; healthy = false; return; }
 
 /*
-cout << "Grainfence grain " << cgid << endl << grainfence << endl;
-cout << "lxyzmi = " << lxmi << ";" << lymi << ";" << lzmi << endl;
-cout << "lxyzmx = " << lxmx << ";" << lymx << ";" << lzmx << endl;
+cout << "Grainfence grain " << cgid << "\n" << grainfence << "\n";
+cout << "lxyzmi = " << lxmi << ";" << lymi << ";" << lzmi << "\n";
+cout << "lxyzmx = " << lxmx << ";" << lymx << ";" << lzmx << "\n";
 */
 
 	localgrid.box = grainfence;
@@ -3066,29 +3191,41 @@ cout << "lxyzmx = " << lxmx << ";" << lymx << ";" << lzmx << endl;
 	localgrid.nxy = (lxmx - lxmi) * (lymx - lymi);
 	localgrid.nxyz = (lxmx - lxmi) * (lymx - lymi) * (lzmx - lzmi);
 
-cout << "Final grain-local grid for " << cgid << endl; // << " is " << localgrid << endl;
+	/*
+	#pragma omp critical
+	{
+		cout << "Final grain-local grid for " << cgid << "\n"; // << " is " << localgrid << "\n";
+	}
+	*/
+
 
 	//##MK::BEGIN DEBUG dummy GrainID field
 	try {
 		GrainIDField.resize( localgrid.nxyz, numeric_limits<unsigned int>::max() );
 	}
 	catch (exception &me_nouipid) {
-cout << "Grain " << cgid << " allocation error for GrainIDField" << endl; //##MK::DEBUG should be in OMP critical
+		#pragma omp critical
+		{
+			cerr << "Grain " << cgid << " allocation error for GrainIDField" << "\n"; //##MK::DEBUG should be in OMP critical
+		}
 		vxlinit_success = false; healthy = false;
 		return;
 	}
 	//##MK::END OF DEBUG
 
 	//fill UIPIDField with dummies to assure
-		//that memory is allocated when attempting storage of closest uipid during voxelization
-		//that error management can prevent onthefly running out of memory
-		//that the dummy value argument has already taken care of the case that there is no close uipid to the vxl from the RVE27 realization
-		//	in case where the grid is so heavily distorted
+	//that memory is allocated when attempting storage of closest uipid during voxelization
+	//that error management can prevent onthefly running out of memory
+	//that the dummy value argument has already taken care of the case that there is no close uipid to the vxl from the RVE27 realization
+	//	in case where the grid is so heavily distorted
 	try {
 		UIPIDField.resize( localgrid.nxyz, numeric_limits<unsigned int>::max() );
 	}
 	catch (exception &me_nouipid) {
-cout << "Grain " << cgid << " allocation error for UIPIDField" << endl; //##MK::DEBUG should be in OMP critical
+		#pragma omp critical
+		{
+			cerr << "Grain " << cgid << " allocation error for UIPIDField" << "\n"; //##MK::DEBUG should be in OMP critical
+		}
 		vxlinit_success = false; healthy = false;
 		return;
 	}
@@ -3098,7 +3235,10 @@ cout << "Grain " << cgid << " allocation error for UIPIDField" << endl; //##MK::
 		IsRepresentativeField.resize( localgrid.nxyz, static_cast<unsigned char>(NO) );
 	}
 	catch (exception &me_nouipid) {
-cout << "Grain " << cgid << " allocation error for IsRepresentativeField" << endl; //##MK::DEBUG should be in OMP critical
+		#pragma omp critical
+		{
+			cerr << "Grain " << cgid << " allocation error for IsRepresentativeField" << "\n"; //##MK::DEBUG should be in OMP critical
+		}
 		vxlinit_success = false; healthy = false;
 		return;
 	}
@@ -3109,7 +3249,10 @@ cout << "Grain " << cgid << " allocation error for IsRepresentativeField" << end
 		SgnDistField1.resize( localgrid.nxyz, h_outside );
 	}
 	catch (exception &me_nosdf) {
-cout << "Grain " << cgid << " allocation error for SgnDistField1" << endl; //##MK::DEBUG should be in OMP critical
+		#pragma omp critical
+		{
+			cerr << "Grain " << cgid << " allocation error for SgnDistField1" << "\n"; //##MK::DEBUG should be in OMP critical
+		}
 		vxlinit_success = false; healthy = false;
 		return;
 	}
@@ -3119,7 +3262,10 @@ cout << "Grain " << cgid << " allocation error for SgnDistField1" << endl; //##M
 		SgnDistField2.resize( localgrid.nxyz, initial );
 	}
 	catch (exception &me_nosdf) {
-cout << "Grain " << cgid << " allocation error for SgnDistField2" << endl; //##MK::DEBUG should be in OMP critical
+		#pragma omp critical
+		{
+			cerr << "Grain " << cgid << " allocation error for SgnDistField2" << "\n"; //##MK::DEBUG should be in OMP critical
+		}
 		vxlinit_success = false; healthy = false;
 		return;
 	}
@@ -3133,11 +3279,148 @@ cout << "Grain " << cgid << " allocation error for SgnDistField2" << endl; //##M
 					different_than_otherthread, descr, "UIPIDMark", "SDFValue" );
 	}
 
-#pragma omp critical
-{
-cout << "Local voxelgrid constructed for grain " << cgid << endl;
+	/*
+	#pragma omp critical
+	{
+		cout << "Local voxelgrid constructed for grain " << cgid << "\n";
+	}
+	*/
 }
 
+
+void grGeomHdl::build_contour_from_vorotess()
+{
+	//precondition: all grain-local sbvh_locator distributed point cloud BVHs have to be initialized
+
+	//which region of interest about a representative grain to inspect to find all material points in rve27 from which
+	//to build a voronoi tessellation to build the outer contour hull of the  grain from the voronoi cell bottom-up?
+	//5 times average point distance about box about representative replica of the grain
+
+	double mytic = omp_get_wtime();
+
+	voro_aabb3d roi = voro_aabb3d( 	grainfence.xmi - Settings::VoroTessContourGuardEdgeLen,
+									grainfence.xmx + Settings::VoroTessContourGuardEdgeLen,
+									grainfence.ymi - Settings::VoroTessContourGuardEdgeLen,
+									grainfence.ymx + Settings::VoroTessContourGuardEdgeLen,
+									grainfence.zmi - Settings::VoroTessContourGuardEdgeLen,
+									grainfence.zmx + Settings::VoroTessContourGuardEdgeLen );
+
+	//which bins of the global BVH to RVE27 make contact with the roi of interest?
+	vector<unsigned int> targetbins;
+
+	unsigned int bminx = owner->pp3rve27.binning_x( roi.xmi );
+	unsigned int bminy = owner->pp3rve27.binning_y( roi.ymi );
+	unsigned int bminz = owner->pp3rve27.binning_z( roi.zmi );
+	unsigned int bmaxx = owner->pp3rve27.binning_x( roi.xmx );
+	unsigned int bmaxy = owner->pp3rve27.binning_y( roi.ymx );
+	unsigned int bmaxz = owner->pp3rve27.binning_z( roi.zmx );
+
+	sqb spatdist = owner->pp3rve27.get_spatialdistr();
+	for( unsigned int zz = bminz; zz <= bmaxz; zz++ ) {
+		unsigned int zoff = zz * spatdist.nxy;
+		for( unsigned int yy = bminy; yy <= bmaxy; yy++ ) {
+			unsigned int yzoff = yy * spatdist.nx + zoff;
+			for( unsigned int xx = bminx; xx <= bmaxx; xx++ ) {
+				targetbins.push_back( xx + yzoff );
+			}
+		}
+	}
+
+	/*
+	#pragma omp critical
+	{
+		cout << "Local roi and targetbins defined " << targetbins.size() << "\n";
+	}
+	*/
+
+	//get all points inside RVE27 in the ROI
+	vector<voro_p3dm2> pointcloud;
+
+	//##MK::for now a compromise
+	//inspect respective grain-local sparse bvh point portions of RVE27 whether or not they contribute unique/periodic mat points in the roi
+	size_t ngr = owner->grains.polyxx.size();
+	for( size_t gr = 0; gr < ngr; gr++ ) {
+		grGeomHdl* thisone = owner->sdf.at(gr); //fish in local memory of other threads!
+		if ( thisone != NULL ) {
+
+			map<unsigned int,sbvhrange> & curr_sbvh = thisone->sbvh_locator;
+			map<unsigned int,sbvhrange>::iterator curr_term = thisone->sbvh_locator.end();
+
+			for( auto it = targetbins.begin(); it != targetbins.end(); it++ ) {
+				unsigned int binID = *it;
+
+				map<unsigned int,sbvhrange>::iterator curr_it = curr_sbvh.find(binID);
+
+				if( curr_it == curr_term ) { //most likely a bin which does not exist
+					continue;
+				}
+				else { //there is something worthwhile to inspect for this sparse bvh bucket, maybe some points of it in roi
+					for( size_t i = curr_it->second.startidx; i < curr_it->second.pastendidx; i++ ) {
+						voro_p3d tmp = voro_p3d( thisone->sbvh_points.at(i).x, thisone->sbvh_points.at(i).y, thisone->sbvh_points.at(i).z );
+
+						if ( roi.inside( tmp ) == true ) { //BVH cell walls not necessarily coincide with roi boundaries!
+							unsigned int matpointID = thisone->sbvh_uipref.at(i);
+							pointcloud.push_back( voro_p3dm2( tmp.x, tmp.y, tmp.z, VOROUINTXX, matpointID ) );
+						}
+					}
+				}
+			} // all target bins relevant for points in ROI tested
+		}
+//cout << "----->" << gr << "\n";
+	} //next grain
+
+	//all interesting candidate material point uniques and replicates collected targetbins no longer necessary
+	targetbins = vector<unsigned int>();
+
+	//done with all grains, replace now unique matpointIDs with grain IDs
+	//MK::do concentrate the cache misses here,
+	//or better to say, do not have them above as sbvh_points and sbvh_uipref already will fire cache misses frequently...
+	for( auto it = pointcloud.begin(); it != pointcloud.end(); ++it ) {
+		unsigned int matpointID = it->m2;
+		unsigned int grainID = owner->eid2gid( matpointID );
+		it->m1 = grainID;
+	}
+
+	double mytoc = omp_get_wtime();
+
+	#pragma omp critical
+	{
+		cout << "Local identification of pointcloud to ROI about grain " << cgid << " pointcloud " << pointcloud.size() << " took " << (mytoc-mytic) << " seconds" << "\n";
+	}
+
+	if ( contour.construct_object( pointcloud, static_cast<voro_uint>(cgid) ) == true ) {
+		contour.build_facet_bvh();
+		contour.build_facet_normals_and_reverse_contours();
+
+		#pragma omp critical
+		{
+			cout << "Local Voronoi cell facet contour composite of grain " << cgid << "\n";
+		}
+
+		mytic = omp_get_wtime();
+
+		if ( Settings::VisGrainFinalReconstruction == (cgid+1) ) {
+			contour.visualize_object_hull( Settings::SimID, owner->thisincrement, cgid );
+		}
+
+		voro_real thrs = 0.9; //at which fractional reduction of the sqrdistance to we reevaluate iteratively again the tree to reduce facet distance test
+
+		contour.identify_normaldistances3( thrs );
+
+		if ( Settings::VisGrainFinalReconstruction == (cgid+1) ) {
+			contour.visualize_distances( Settings::SimID, owner->thisincrement, cgid );
+		}
+
+		mytoc = omp_get_wtime();
+
+		#pragma omp critical
+		{
+			cout << "Local distancing of grain " << cgid << " performed, took " << (mytoc-mytic) << " seconds" << "\n";
+		}
+	}
+	else {
+		cerr << "Constructing the Voronoi cell facet contour hull composite was impossible for grain " << cgid << "\n";
+	}
 }
 
 
@@ -3184,11 +3467,12 @@ void grGeomHdl::voxelize_via_pvtessellation()
 		} //next x vxlline stacked along +y
 	} //next xy vxlslab stacked along +z
 
-#pragma omp critical
-{
-	cout << "VoxelizationPerformed for grain " << cgid << endl;
-}
-
+	/*
+	#pragma omp critical
+	{
+		cout << "VoxelizationPerformed for grain " << cgid << "\n";
+	}
+	*/
 }
 
 
@@ -3198,7 +3482,7 @@ void grGeomHdl::compute_sgndistfun_coarse()
 	//MK::signed-distance function sign convention
 
 	real_sdf h = static_cast<real_sdf>(localgrid.dcell);
-	//real_sdf h_o = static_cast<real_sdf>(-1.0) * h; //outside the grain - negative
+	real_sdf h_o = static_cast<real_sdf>(-1.0) * h; //outside the grain - negative
 	real_sdf h_i = static_cast<real_sdf>(+1.0) * h; //inside the grain - positive
 
 	nuvxl = 0;
@@ -3225,7 +3509,7 @@ void grGeomHdl::compute_sgndistfun_coarse()
 						if ( IsRepresentativeField[cxyz] == YES ) {
 							//###MK::strictly speaking an assignment should only be made
 
-							//cout << "cgid/lx/ly/lz/uipid2gid " << cgid << "\t\t" << lx << ";" << ly << ";" << lz << "\t\t" << uipid2gid << endl;
+							//cout << "cgid/lx/ly/lz/uipid2gid " << cgid << "\t\t" << lx << ";" << ly << ";" << lz << "\t\t" << uipid2gid << "\n";
 							SgnDistField1[cxyz] = h_i;
 							nuvxl++;
 						}
@@ -3235,11 +3519,12 @@ void grGeomHdl::compute_sgndistfun_coarse()
 		} //next xline stacked along +y
 	} //next xyslab stacked along +z
 
-#pragma omp critical
-{
-	cout << "Coarse signed distance function initialized for grain " << cgid << endl;
-}
-
+	/*
+	#pragma omp critical
+	{
+		cout << "Coarse signed distance function initialized for grain " << cgid << "\n";
+	}
+	*/
 }
 
 
@@ -3512,16 +3797,18 @@ void grGeomHdl::compute_sgndistfun_fsm()
 	//no clamping operation
 
 	//##MK::thread writing file with different name than any other thread (disjoint grainIDs) therefore can be done in parallel, but of course may not be efficient when only one harddrive
-	if ( Settings::VisGrainFinalReconstruction == 0 || Settings::VisGrainFinalReconstruction == (cgid+1) ) {
+	//if ( Settings::VisGrainFinalReconstruction == 0 ) {
+	if ( Settings::VisGrainFinalReconstruction == (cgid+1) ) {
 		bool status = vtk_grfinalrecon( owner->thegrid, localgrid, GrainIDField, UIPIDField,
 				SgnDistField1, SgnDistField2, cgid, owner->thisincrement );
 	}
 
-#pragma omp critical
-{
-cout << "Fast sweeping method applied to grain " << cgid << endl;
-}
-
+	/*
+	#pragma omp critical
+	{
+		cout << "Fast sweeping method applied to grain " << cgid << "\n";
+	}
+	*/
 }
 
 
@@ -3535,7 +3822,7 @@ void grGeomHdl::debug_sdf_sphere_seed( const real_xyz R)
 	real_xyz half = static_cast<real_xyz>(0.5);
 	p3d center = localgrid.box.center();
 
-cout << "DEBUGGING SDF placing sphere radius " << R << " at center " << center << endl;
+cout << "DEBUGGING SDF placing sphere radius " << R << " at center " << center << "\n";
 
 	real_xyz SQRR = SQR(R);
 	for (size_t z = 0; z < localgrid.nz; ++z) {
@@ -3565,7 +3852,7 @@ void grGeomHdl::debug_sdf_sphere_guess()
 	//guess initial SDF by setting all vxl with GrainID == this->cgid to +h and -h otherwise
 	//MK::use distance buffer 1
 
-cout << "DEBUGGING SDF estimating initial SDF" << endl;
+cout << "DEBUGGING SDF estimating initial SDF" << "\n";
 
 	real_sdf h_o = static_cast<real_sdf>(-1.0) * static_cast<real_sdf>(localgrid.dcell);
 	real_sdf h_i = static_cast<real_sdf>(+1.0) * static_cast<real_sdf>(localgrid.dcell);
@@ -3620,7 +3907,7 @@ inline void grGeomHdl::m_outputDistance_setValueAt( const int row, const int col
 
 void grGeomHdl::debug_sdf_sphere_fsm()
 {
-cout << "DEBUGGING SDF computing SDF using FastSweepingMethod" << endl;
+cout << "DEBUGGING SDF computing SDF using FastSweepingMethod" << "\n";
 
 	//execute in essence the fast sweeping method which was originally proposed by
 	//H. Zhao, Mathematics of Computation, 74 250, 2004, 603-627
@@ -3895,7 +4182,7 @@ void grGeomHdl::debug_sdf_sphere_exact( const real_xyz R)
 	//compare with exact analytical distance function
 	//MK::in distance buffer 1
 
-cout << "DEBUGGING SDF compute analytical SDF" << endl;
+cout << "DEBUGGING SDF compute analytical SDF" << "\n";
 	p3d center = localgrid.box.center();
 	real_xyz half = static_cast<real_xyz>(0.5);
 
@@ -3925,7 +4212,7 @@ void grGeomHdl::debug_sdf_sphere_report()
 {
 	//VTK file for each voxel, field data GrainID, distance buffer 1 analytical solution, distance buffer 2 FSM solution, difference
 	//writes 3d positions to VTK file
-cout << "DEBUGGING SDF reporting SDF results" << endl;
+cout << "DEBUGGING SDF reporting SDF results" << "\n";
 
 	string fn = owner->get_prefix() + ".DEBUG.SDF.Sphere.vtk";
 
@@ -3967,19 +4254,19 @@ cout << "DEBUGGING SDF reporting SDF results" << endl;
 		for (size_t i = 0; i < nvertices; ++i) {
 			vtk << GrainIDField[i] << "\n";
 		}
-		vtk << endl;
+		vtk << "\n";
 
 		vtk << "SDFana 1 " << nvertices << " double\n";
 		for (size_t i = 0; i < nvertices; ++i) {
 			vtk << SgnDistField1[i] << "\n";
 		}
-		vtk << endl;
+		vtk << "\n";
 
 		vtk << "SDFfsm 1 " << nvertices << " double\n";
 		for (size_t i = 0; i < nvertices; ++i) {
 			vtk << SgnDistField2[i] << "\n";
 		}
-		vtk << endl;
+		vtk << "\n";
 
 		vtk << "SDFDiff 1 " << nvertices << " double\n";
 		for (size_t i = 0; i < nvertices; ++i) {
@@ -3990,12 +4277,12 @@ cout << "DEBUGGING SDF reporting SDF results" << endl;
 			else
 				vtk << static_cast<real_sdf>(1.0e9) << "\n";
 		}
-		vtk << endl;
+		vtk << "\n";
 		vtk.flush();
 		vtk.close();
 	}
 	else {
-cout << "DEBUGGING Signed Distance Function Sphere Reporting unable to write integration point positions to VTK file" << endl;
+cout << "DEBUGGING Signed Distance Function Sphere Reporting unable to write integration point positions to VTK file" << "\n";
 	}
 }
 
@@ -4012,7 +4299,7 @@ specOutIncr::specOutIncr()
 	rveBaseDef = bv3x3();
 
 	myrank = MASTER;
-	nranks = SINGLE;
+	nranks = SINGLEPROCESS;
 	healthy = true;
 }
 
@@ -4032,9 +4319,14 @@ specOutIncr::~specOutIncr()
 void specOutIncr::init_mpi_derivedtypes()
 {
 	/*initializes user-defined MPI datatypes*/
+	MPI_Type_contiguous(1, MPI_INT, &MPI_StatusInfo_Type);
 	MPI_Type_contiguous(9, MPI_DOUBLE, &MPI_Tensor3x3_Double_Type);
 	MPI_Type_contiguous(2, MPI_DOUBLE, &MPI_VonMises_Double_Type);
 	MPI_Type_contiguous(13, MPI_DOUBLE, &MPI_DisloSpatDistr_Double_Type);
+	MPI_Type_contiguous(1+1+9, MPI_DOUBLE, &MPI_Tensor3x3SpatDistr_Double_Type);
+	MPI_Type_contiguous(1+1+4, MPI_DOUBLE, &MPI_GrainOriSpatDistr_Double_Type);
+	MPI_Type_contiguous(1+4, MPI_DOUBLE, &MPI_GrainQuat_Double_Type);
+
 
 	/*
 	//MPI_Datatype MPI_3DFaceIO_Type;
@@ -4044,11 +4336,59 @@ void specOutIncr::init_mpi_derivedtypes()
 	MPI_Type_create_struct(2, elementCounts3, displacements3, oldTypes3, &MPI_3DFaceIO_Type);
 	*/
 
+	MPI_Type_commit(&MPI_StatusInfo_Type);
 	MPI_Type_commit(&MPI_Tensor3x3_Double_Type);
 	MPI_Type_commit(&MPI_VonMises_Double_Type);
 	MPI_Type_commit(&MPI_DisloSpatDistr_Double_Type);
+	MPI_Type_commit(&MPI_Tensor3x3SpatDistr_Double_Type);
+	MPI_Type_commit(&MPI_GrainOriSpatDistr_Double_Type);
+	MPI_Type_commit(&MPI_GrainQuat_Double_Type);
 
 	//MPI_Type_commit(&MPI_3DFaceIO_Type);
+}
+
+
+void specOutIncr::parse_taskspecific_opts()
+{
+	//interpret desired user request for specific variants of e.g. strainTensors to be computed
+	if ( Settings::AddStrainTensorOpts.empty() == true ) { //get out, no specific command
+		cerr << "User did not define specific strainTensorOptions" << "\n";
+		return;
+	}
+
+	//##MK::so far using only one option supported, parsing stops if first useful straintensor and strainmodel deciphered
+	int numopts = std::count( Settings::AddStrainTensorOpts.begin(),
+			Settings::AddStrainTensorOpts.end(), ';') + 1;
+	stringstream parsethis;
+	parsethis << Settings::AddStrainTensorOpts;
+	string datapiece;
+	bool defaultreset = false;
+	for( int tsk = 0; tsk < numopts; tsk++ ) {
+		getline( parsethis, datapiece, ';');
+
+		cout << "StrainTensorOption " << tsk << "____" << datapiece << "____ added" << "\n";
+
+		if ( datapiece.compare( "RightLn" ) == 0 ) {
+			taskops.whichstraintensor = RIGHTCAUCHYGREEN;
+			taskops.whichstrainmodel = LNSTRAIN;
+			//defaultreset = true;
+			cout << "StrainTensorOption::RIGHTCAUCHYGREEN::LNSTRAIN set\n";
+			break;
+		}
+		else if ( datapiece.compare( "RightGreen") == 0 ) {
+			taskops.whichstraintensor = RIGHTCAUCHYGREEN;
+			taskops.whichstrainmodel = GREENSTRAIN;
+			//defaultreset = true;
+			cout << "StrainTensorOption::RIGHTCAUCHYGREEN::GREENSTRAIN set\n";
+			break;
+		}
+		else {
+			continue;
+		}
+	}
+	/*if ( defaultreset == true ) {
+		cout << "StrainTensorOption::the default was reset!" << "\n";
+	}*/
 }
 
 
@@ -4056,6 +4396,7 @@ bool specOutIncr::specout_read_header()
 {
 	//read header of a spectralOut file parsing Fortran integer tags
 	double tic = MPI_Wtime();
+
 	string fn = Settings::SpectralOutFilename + ".spectralOut";
 	FILE * spec;
 	spec = fopen( fn.c_str() , "rb" );
@@ -4065,8 +4406,9 @@ bool specOutIncr::specout_read_header()
 		return false;
 	}
 	else { //start reading file
+
 if ( get_myrank() == MASTER )
-	cout << "The metadata of the spectralOut file are as follows:" << endl;
+	cout << "The metadata of the spectralOut file are as follows:" << "\n";
 
 		size_t probe = 0;
 		int ftag = 0; //Fortran writes integer tags whose size indicates the number of data elements following
@@ -4081,7 +4423,8 @@ if ( get_myrank() == MASTER )
 		head.load.resize(ftag);
 		probe = fread(&head.load[0], sizeof(char), ftag, spec);
 		if ( probe != static_cast<size_t>(ftag) ) { stopping( "Unable to read load value!", myrank, 0); fclose(spec); return false; }
-cout << "Load filename\t\t\t" << head.load << endl;
+if ( get_myrank() == MASTER )
+	cout << "Load filename\t\t\t" << head.load << "\n";
 		//trailing tag
 		probe = fread(&ftag, sizeof(int), 1, spec);
 		if ( probe != 1 ) { stopping( "Unable to read load tag 2!", myrank, 0); fclose(spec); return false; }
@@ -4092,7 +4435,8 @@ cout << "Load filename\t\t\t" << head.load << endl;
 		head.wdir.resize(ftag);
 		probe = fread(&head.wdir[0], sizeof(char), ftag, spec);
 		if ( probe != static_cast<size_t>(ftag) ) { stopping( "Unable to read wdir value!", myrank, 0); fclose(spec); return false; }
-cout << "Working directory\t\t" << head.wdir << endl;
+if ( get_myrank() == MASTER )
+	cout << "Working directory\t\t" << head.wdir << "\n";
 		probe = fread(&ftag, sizeof(int), 1, spec);
 		if ( probe != 1 ) { stopping( "Unable to read wdir tag 2!", myrank, 0); fclose(spec); return false; }
 
@@ -4102,7 +4446,8 @@ cout << "Working directory\t\t" << head.wdir << endl;
 		head.geom.resize(ftag);
 		probe = fread(&head.geom[0], sizeof(char), ftag, spec);
 		if ( probe != static_cast<size_t>(ftag) ) { stopping( "Unable to read geom value!", myrank, 0); fclose(spec); return false; }
-cout << "Geometry filename\t\t" << head.geom << endl;
+if ( get_myrank() == MASTER )
+	cout << "Geometry filename\t\t" << head.geom << "\n";
 		probe = fread(&ftag, sizeof(int), 1, spec);
 		if ( probe != 1 ) { stopping( "Unable to read geom tag 2!", myrank, 0); fclose(spec); return false; }
 
@@ -4125,9 +4470,11 @@ cout << "Geometry filename\t\t" << head.geom << endl;
 			head.NXY = head.NX*head.NY;
 			head.NXYZ = head.NX*head.NY*head.NZ;
 		}
-cout << "RVE domain resolution\t\t" << head.N << endl;
-cout << "RVE domain shape\t\t" << head.NX << "\t\t" << head.NY << "\t\t" << head.NZ << endl;
-cout << "RVE domain area/volume\t\t" << "\t\t" << head.NXY << "\t\t" << head.NXYZ << endl;
+if ( get_myrank() == MASTER ) {
+	cout << "RVE domain resolution\t\t" << head.N << "\n";
+	cout << "RVE domain shape\t\t" << head.NX << "\t\t" << head.NY << "\t\t" << head.NZ << "\n";
+	cout << "RVE domain area/volume\t\t" << "\t\t" << head.NXY << "\t\t" << head.NXYZ << "\n";
+}
 		probe = fread(&ftag, sizeof(int), 1, spec);
 		if ( probe != 1 ) { stopping( "Unable to read grid tag 2!", myrank, 0); fclose(spec); return false; }
 
@@ -4145,7 +4492,8 @@ cout << "RVE domain area/volume\t\t" << "\t\t" << head.NXY << "\t\t" << head.NXY
 				static_cast<real_xyz>(geomsizes[0]),
 				static_cast<real_xyz>(geomsizes[1]),
 				static_cast<real_xyz>(geomsizes[2]) );
-cout << "RVE domain geometry\t\t" << head.L.x << "\t\t" << head.L.y << "\t\t" << head.L.z << endl;
+if ( get_myrank() == MASTER )
+	cout << "RVE domain geometry\t\t" << head.L.x << "\t\t" << head.L.y << "\t\t" << head.L.z << "\n";
 		probe = fread(&ftag, sizeof(int), 1, spec);
 		if ( probe != 1 ) { stopping( "Unable to read geomSize tag 2!", myrank, 0); fclose(spec); return false; }
 
@@ -4161,7 +4509,8 @@ cout << "RVE domain geometry\t\t" << head.L.x << "\t\t" << head.L.y << "\t\t" <<
 		probe = fread(&mpr, sizeof(int), 1, spec);
 		if ( probe != 1 ) { stopping( "Unable to extract 1 int32 count", myrank, 0); fclose(spec); return false; }
 		head.matpres = static_cast<unsigned int>(mpr);
-cout << "Materialdata per IP\t\t" << head.matpres << endl;
+if ( get_myrank() == MASTER )
+	cout << "Materialdata per IP\t\t" << head.matpres << "\n";
 		probe = fread(&ftag, sizeof(int), 1, spec);
 		if ( probe != 1 ) { stopping( "Unable to read matpres tag 2!", myrank, 0); fclose(spec); return false; }
 
@@ -4177,7 +4526,8 @@ cout << "Materialdata per IP\t\t" << head.matpres << endl;
 		probe = fread(&lc, sizeof(int), 1, spec);
 		if ( probe != 1 ) { stopping( "Unable to extract 1 int32 count", myrank, 0); fclose(spec); return false; }
 		head.loadcases = static_cast<unsigned int>(lc);
-cout << "Loadcases in total\t\t" << head.loadcases << endl;
+if ( get_myrank() == MASTER )
+	cout << "Loadcases in total\t\t" << head.loadcases << "\n";
 		probe = fread(&ftag, sizeof(int), 1, spec);
 		if ( probe != 1 ) { stopping( "Unable to read loadcases tag 2!", myrank, 0); fclose(spec); return false; }
 
@@ -4200,7 +4550,8 @@ cout << "Loadcases in total\t\t" << head.loadcases << endl;
 			probe = fread(&fq, sizeof(int), 1, spec);
 			if ( probe != 1 ) { stopping( "Unable to extract 1 int32 count", myrank, 0); fclose(spec); return false; }
 			head.loadcasesmeta.at(l).freqs = static_cast<unsigned int>(fq);
-cout << "Frequency loadcase " << l << "\t\t" << head.loadcasesmeta.at(l).freqs << endl;
+if ( get_myrank() == MASTER )
+	cout << "Frequency loadcase " << l << "\t\t" << head.loadcasesmeta.at(l).freqs << "\n";
 		}
 		probe = fread(&ftag, sizeof(int), 1, spec);
 		if ( probe != 1 ) { stopping( "Unable to read freqs tag 2!", myrank, 0); fclose(spec); return false; }
@@ -4218,7 +4569,8 @@ cout << "Frequency loadcase " << l << "\t\t" << head.loadcasesmeta.at(l).freqs <
 			probe = fread(&tms, sizeof(double), 1, spec);
 			if ( probe != 1 ) { stopping( "Unable to extract 1 int32 count", myrank, 0); fclose(spec); return false; }
 			head.loadcasesmeta.at(l).times = tms;
-cout << "Timing of loadcase " << l << "\t\t" << head.loadcasesmeta.at(l).times << endl;
+if ( get_myrank() == MASTER )
+	cout << "Timing of loadcase " << l << "\t\t" << head.loadcasesmeta.at(l).times << "\n";
 		}
 		probe = fread(&ftag, sizeof(int), 1, spec);
 		if ( probe != 1 ) { stopping( "Unable to read times tag 2!", myrank, 0); fclose(spec); return false; }
@@ -4235,7 +4587,8 @@ cout << "Timing of loadcase " << l << "\t\t" << head.loadcasesmeta.at(l).times <
 			probe = fread(&lgsc, sizeof(int), 1, spec);
 			if ( probe != 1 ) { stopping( "Unable to extract 1 int32 count", myrank, 0); fclose(spec); return false; }
 			head.loadcasesmeta.at(l).logscales = static_cast<unsigned int>(lgsc);
-cout << "Is loadcase " << l << " logscaled\t\t" << head.loadcasesmeta.at(l).logscales << endl;
+if ( get_myrank() == MASTER )
+	cout << "Is loadcase " << l << " logscaled\t\t" << head.loadcasesmeta.at(l).logscales << "\n";
 		}
 		probe = fread(&ftag, sizeof(int), 1, spec);
 		if ( probe != 1 ) { stopping( "Unable to read logscales tag 2!", myrank, 0); fclose(spec); return false; }
@@ -4253,7 +4606,8 @@ cout << "Is loadcase " << l << " logscaled\t\t" << head.loadcasesmeta.at(l).logs
 			probe = fread(&incrs, sizeof(int), 1, spec);
 			if ( probe != 1 ) { stopping( "Unable to extract 1 int32 count", myrank, 0); fclose(spec); return false; }
 			head.loadcasesmeta.at(l).nincr = static_cast<unsigned int>(incrs);
-cout << "Increments in loadcase " << l << "\t" << head.loadcasesmeta.at(l).nincr << endl;
+if ( get_myrank() == MASTER )
+	cout << "Increments in loadcase " << l << "\t" << head.loadcasesmeta.at(l).nincr << "\n";
 		}
 		probe = fread(&ftag, sizeof(int), 1, spec);
 		if ( probe != 1 ) { stopping( "Unable to read increments tag 2!", myrank, 0); fclose(spec); return false; }
@@ -4270,7 +4624,8 @@ cout << "Increments in loadcase " << l << "\t" << head.loadcasesmeta.at(l).nincr
 		probe = fread(&sincr, sizeof(int), 1, spec);
 		if ( probe != 1 ) { stopping( "Unable to extract 1 int32 count", myrank, 0); fclose(spec); return false; }
 		head.sincr = static_cast<unsigned int>(sincr);
-cout << "Index of starting incr\t\t" << head.sincr << endl;
+if ( get_myrank() == MASTER )
+	cout << "Index of starting incr\t\t" << head.sincr << "\n";
 		probe = fread(&ftag, sizeof(int), 1, spec);
 		if ( probe != 1 ) { stopping( "Unable to read startingIncrement tag 2!", myrank, 0); fclose(spec); return false; }
 
@@ -4282,7 +4637,8 @@ cout << "Index of starting incr\t\t" << head.sincr << endl;
 		//skip 3 char keyword 'eoh'
 		probe = fread(&skip3[0], sizeof(char), 3, spec);
 		if ( probe != 3 ) { stopping( "Unable to extract 3 char keyword eoh", myrank, 0); fclose(spec); return false; }
-cout << "EOH" << endl;
+if ( get_myrank() == MASTER )
+	cout << "EOH" << "\n";
 		probe = fread(&ftag, sizeof(int), 1, spec);
 		if ( probe != 1 ) { stopping( "Unable to read eoh tag 2!", myrank, 0); fclose(spec); return false; }
 
@@ -4294,11 +4650,13 @@ cout << "EOH" << endl;
 			}
 		}
 		head.lincr = incr;
-cout << "LastIncrement\t\t\t" << head.lincr << endl;
+if ( get_myrank() == MASTER )
+	cout << "LastIncrement with data\t" << head.lincr << "\n";
 
 		//store position of current filepointer as it points to first byte past the header
 		head.FirstByteAfterHeader = static_cast<size_t>(ftell(spec));
-cout << "Header offset is\t\t" << head.FirstByteAfterHeader << " Bytes" << endl;
+if ( get_myrank() == MASTER )
+	cout << "Header offset is\t\t" << head.FirstByteAfterHeader << " Bytes" << "\n";
 	}
 
 	if ( fclose(spec) != 0 ) {
@@ -4309,13 +4667,17 @@ cout << "Header offset is\t\t" << head.FirstByteAfterHeader << " Bytes" << endl;
 
 	//##MK::for the moment we utilize DAMASK_spectral therefore simple cubic reduced integration point element
 	head.Nip = 1;
-cout << "Header Nip\t\t\t" << head.Nip << endl;
+if ( get_myrank() == MASTER )
+	cout << "Header Nip\t\t\t" << head.Nip << "\n";
 	head.Ncp = head.NXYZ;
-cout << "Header Ncp\t\t\t" << head.Ncp << endl;
+if ( get_myrank() == MASTER )
+	cout << "Header Ncp\t\t\t" << head.Ncp << "\n";
 
 	head.DataElementsPerIncrement = static_cast<size_t>(head.matpres)*static_cast<size_t>(head.Nip)*static_cast<size_t>(head.Ncp);
+
 	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "IO::SpecOutReadHeader"));
+	memsnapshot mm = memsnapshot(); //tictoc.get_memoryconsumption();
+	tictoc.prof_elpsdtime_and_mem( "SpecOutReadHeader", APT_SPE_IO, APT_IS_SEQ, mm, tic, toc, 0);
 
 	return true;
 }
@@ -4353,11 +4715,9 @@ bool specOutIncr::specout_read_structure_homogenization()
 				int test1 = k.compare(0,1,"(");
 				int test2 = k.compare(k.length()-1,1,")");
 				if ( test1 == 0 && test2 == 0 ) { //it was a keyword so store the value in map
-					dlayout.homogenization.push_back( dlayoutnode(k, v) );
+					dlayout.homog_meta.push_back( dlayoutnode(k, v) );
 
-cout << dlayout.homogenization.at(dlayout.homogenization.size()-1).key <<
-		"__" <<  dlayout.homogenization.at(dlayout.homogenization.size()-1).valstr <<
-			"__" <<  dlayout.homogenization.at(dlayout.homogenization.size()-1).valui << endl;
+//cout << dlayout.homog_meta.back().key << "__" <<  dlayout.homog_meta.back().valstr << "__" <<  dlayout.homog_meta.back().valui << "\n";
 				}
 			}
 		}//next potential keyword
@@ -4369,7 +4729,8 @@ cout << dlayout.homogenization.at(dlayout.homogenization.size()-1).key <<
 		return false;
 	}
 	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "IO::MetaReadHomogenization"));
+	memsnapshot mm = memsnapshot(); //tictoc.get_memoryconsumption();
+	tictoc.prof_elpsdtime_and_mem( "MetaReadHomogenization", APT_SPE_IO, APT_IS_SEQ, mm, tic, toc, 0);
 
 	return true;
 }
@@ -4378,6 +4739,7 @@ cout << dlayout.homogenization.at(dlayout.homogenization.size()-1).key <<
 bool specOutIncr::specout_read_structure_crystallite()
 {
 	double tic = MPI_Wtime();
+
 	ifstream metafile;
 	string metaline;
 	istringstream line;
@@ -4404,11 +4766,9 @@ bool specOutIncr::specout_read_structure_crystallite()
 				line >> k >> v;
 
 				//##MK::check if k and v contain at all pieces of information
-				dlayout.crystallite.push_back( dlayoutnode(k, v) );
+				dlayout.cryst_meta.push_back( dlayoutnode(k, v) );
 
-cout << dlayout.crystallite.at(dlayout.crystallite.size()-1).key <<
-		"__" <<  dlayout.crystallite.at(dlayout.crystallite.size()-1).valstr <<
-			"__" <<  dlayout.crystallite.at(dlayout.crystallite.size()-1).valui << endl;
+//cout << dlayout.cryst_meta.back().key << "__" <<  dlayout.cryst_meta.back().valstr << "__" <<  dlayout.cryst_meta.back().valui << "\n";
 			}
 		}//next potential keyword
 
@@ -4419,7 +4779,8 @@ cout << dlayout.crystallite.at(dlayout.crystallite.size()-1).key <<
 		return false;
 	}
 	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "IO::MetaReadCrystallite"));
+	memsnapshot mm = memsnapshot(); //tictoc.get_memoryconsumption();
+	tictoc.prof_elpsdtime_and_mem( "MetaReadCrystallite", APT_SPE_IO, APT_IS_SEQ, mm, tic, toc, 0);
 
 	return true;
 }
@@ -4456,11 +4817,9 @@ bool specOutIncr::specout_read_structure_constitutive()
 				line >> k >> v;
 
 				//##MK::check if k and v contain at all pieces of information
-				dlayout.constitutive.push_back( dlayoutnode(k, v) );
+				dlayout.const_meta.push_back( dlayoutnode(k, v) );
 
-cout << dlayout.constitutive.at(dlayout.constitutive.size()-1).key <<
-		"__" <<  dlayout.constitutive.at(dlayout.constitutive.size()-1).valstr <<
-			"__" <<  dlayout.constitutive.at(dlayout.constitutive.size()-1).valui << endl;
+//cout << dlayout.const_meta.back().key << "__" <<  dlayout.const_meta.back().valstr << "__" <<  dlayout.const_meta.back().valui << "\n";
 			}
 		}//next potential keyword
 
@@ -4471,7 +4830,8 @@ cout << dlayout.constitutive.at(dlayout.constitutive.size()-1).key <<
 		return false;
 	}
 	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "IO::MetaReadConstitutive"));
+	memsnapshot mm = memsnapshot(); //tictoc.get_memoryconsumption();
+	tictoc.prof_elpsdtime_and_mem( "MetaReadConstitutive", APT_SPE_IO, APT_IS_SEQ, mm, tic, toc, 0);
 
 	return true;
 }
@@ -4492,13 +4852,16 @@ int specOutIncr::map_increments2ranks()
 	for ( unsigned int loadcase = 0; loadcase < head.loadcases; ++loadcase) {
 		//with which frequency were in this loadcase data dumped to the spectralOut file?
 		unsigned int loadcase_dump_freq = head.loadcasesmeta.at(loadcase).freqs;
+		unsigned int li_last = (head.loadcasesmeta.size() == 1) ?
+				head.loadcasesmeta.at(loadcase).nincr + 1 : head.loadcasesmeta.at(loadcase).nincr; //given the Fortran to C indexing
 
-		for ( unsigned int li = 0; li < head.loadcasesmeta.at(loadcase).nincr; ++li ) { //##MK::check if freq > 1
+		for ( unsigned int li = 0; li < li_last; ++li ) { //##MK::check if freq > 1
 			if ( li % loadcase_dump_freq == 0 ) { //so if a dump was written to file
 				//##MK::round robin work partitioning of existent dump data
 				int thisrank = writtenincr % nranks;
 				//a valid rank id?
 				if (thisrank >= MASTER && thisrank < nranks) {
+					incr2healthy.insert( pair<int,bool>(incr, false) );
 					incr2rank.insert( pair<int,int>(incr,thisrank) );
 					incr2wincr.insert( pair<int,int>(incr,writtenincr) );
 
@@ -4521,7 +4884,8 @@ int specOutIncr::map_increments2ranks()
 		} //check next for written data for next converged DAMASK increment
 	}
 	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "WorkScheduling::MapIncrements2Ranks"));
+	memsnapshot mm = memsnapshot(); //tictoc.get_memoryconsumption();
+	tictoc.prof_elpsdtime_and_mem( "MapIncrements2Ranks", APT_UTL, APT_IS_SEQ, mm, tic, toc, 0);
 
 	//all increments have been assigned to the processes, although not guaranteeing optimal load imbalance,
 	//however, for DAMASK number of elements does not change, so only moderate effect of workload, unless shape change is significant and phase transformations change
@@ -4625,7 +4989,8 @@ void specOutIncr::map_meshelements2threads()
 		}
 	}
 	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "Processing::MeshElements2Ranks" + to_string(thisincrement)));
+	memsnapshot mm = memsnapshot(); //tictoc.get_memoryconsumption();
+	tictoc.prof_elpsdtime_and_mem( "MeshElements2Ranks", APT_UTL, APT_IS_PAR, mm, tic, toc, thisincrement);
 }
 
 
@@ -4643,7 +5008,8 @@ void specOutIncr::grid_initial_configuration()
 	}
 
 	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "Processing::InitialCoordinates" + to_string(thisincrement)));
+	memsnapshot mm = memsnapshot(); //tictoc.get_memoryconsumption();
+	tictoc.prof_elpsdtime_and_mem( "InitialCoordinates", APT_UTL, APT_IS_PAR, mm, tic, toc, thisincrement);
 }
 
 
@@ -4726,6 +5092,28 @@ t3x3 specOutIncr::rve_volume_averaged_piolastress()
 	return t3x3(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
 }
 
+t3x3 specOutIncr::rve_volume_averaged_strain()
+{
+	t3x3 rve_avg = t3x3(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0); //initialized with zero-valued piola stress tensor, hence if applied to base vectors we remain in the initial configuration
+
+	unsigned int nt = db.size();
+	unsigned int mr = MASTER;
+	for ( 		; mr < nt; mr++ ) { //collect local averaging results
+		t3x3 mr_avg = db.at(mr)->crystallite.compute_average_equalweighting( db.at(mr)->crystallite.straintensor1 ); //straintensor1 based on F
+
+		rve_avg.add( mr_avg, static_cast<real_m33>(1.0) );
+	}
+	if ( nt > 0 ) { //summarize into RVE global result
+		real_m33 scaler = static_cast<real_m33>(mr);
+		rve_avg.div( scaler );
+		return rve_avg;
+	}
+	//implicit else
+	complaining("Unable to compute RVE averaged strain, instead returning zero-valued tensor", myrank, 0 );
+	return t3x3(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+}
+
+
 t3x3 specOutIncr::rve_volume_averaged_truestrain( t3x3 const & Fav, t3x3 const & Pav )
 {
 	bool mystatus = true;
@@ -4735,9 +5123,9 @@ t3x3 specOutIncr::rve_volume_averaged_truestrain( t3x3 const & Fav, t3x3 const &
 
 	//##MK::DEBUG
 	if (mystatus == true)
-cout << "RVE UStrain " << TrueStrain << endl;
+cout << "RVE UStrain " << TrueStrain << "\n";
 	else
-cout << "RVE UStrain " << "IMKL call did not converge or failed!" << endl;
+cerr << "RVE UStrain " << "IMKL call did not converge or failed!" << "\n";
 	//##MK::END OF DEBUG
 
 	return TrueStrain;
@@ -4753,58 +5141,162 @@ t3x3 specOutIncr::rve_volume_averaged_cauchystress( t3x3 const & Fav, t3x3 const
 
 	//##MK::DEBUG
 	if (mystatus == true)
-cout << "RVE Cauchy " << Cauchyy << endl;
+cout << "RVE Cauchy " << Cauchyy << "\n";
 	else
-cout << "RVE Cauchy " << "IMKL call did not converge or failed!" << endl;
+cerr << "RVE Cauchy " << "IMKL call did not converge or failed!" << "\n";
 	//##MK::END OF DEBUG
 	
 	return Cauchyy;
 }
 
 
+
+real_xyz specOutIncr::rve_summated_equalweighting( const unsigned int which )
+{
+	real_xyz rve_sum = 0.0;
+
+	unsigned int nt = db.size();
+	unsigned int mr = MASTER;
+	for ( 		; mr < nt; mr++ ) { //collect local averaging results
+		real_xyz mr_sum = 0.0;
+
+		switch (which) {
+			case V_VOLUME:
+				mr_sum = db.at(mr)->crystallite.compute_summate_equalweighting( db.at(mr)->crystallite.V ); break;
+			default:
+				break;
+		}
+
+		rve_sum += mr_sum;
+		//##MK::
+		//rve_avg.add( mr_avg, static_cast<real_m33>(1.0) );
+	}
+cout << "RVE_Sum = " << rve_sum << "\n";
+	return rve_sum;
+}
+
+
+
+t3x3 specOutIncr::rve_averaged_equalweighting( const unsigned int which )
+{
+	t3x3 rve_avg = zerot3x3();
+
+	unsigned int nt = db.size();
+	unsigned int mr = MASTER;
+	for ( 		; mr < nt; mr++ ) { //collect local averaging results
+		real_xyz mr_sum = 0.0;
+		t3x3 mr_avg = zerot3x3();
+
+		switch (which) {
+			case F_TOTAL:
+				mr_avg = db.at(mr)->crystallite.compute_average_equalweighting( db.at(mr)->crystallite.F ); break;
+			case F_ELASTIC:
+				mr_avg = db.at(mr)->crystallite.compute_average_equalweighting( db.at(mr)->crystallite.Fe ); break;
+			//case F_PLASTIC: ##MK::makes no sense
+			//	mr_avg = db.at(mr)->crystallite.compute_average_equalweighting( db.at(mr)->crystallite.Fp ); break;
+			case P_STRESS:
+				mr_avg = db.at(mr)->crystallite.compute_average_equalweighting( db.at(mr)->crystallite.P ); break;
+			case EPS_RIGHTCAUCHYGREEN_LN_FT:
+				mr_avg = db.at(mr)->crystallite.compute_average_equalweighting( db.at(mr)->crystallite.straintensor1 ); break;
+			case EPS_RIGHTCAUCHYGREEN_LN_FP:
+				mr_avg = db.at(mr)->crystallite.compute_average_equalweighting( db.at(mr)->crystallite.straintensor2 ); break;
+			case CAUCHY_STRESS:
+				mr_avg = db.at(mr)->crystallite.compute_average_equalweighting( db.at(mr)->crystallite.stresstensor ); break;
+			default:
+				break;
+		}
+
+		rve_avg.add( mr_avg, static_cast<real_m33>(1.0) );
+	}
+	if ( nt > 0 ) { //summarize into RVE global result
+		real_m33 scaler = static_cast<real_m33>(mr);
+		rve_avg.div( scaler );
+		return rve_avg;
+	}
+	//implicit else
+	complaining("Unable to compute RVE averaged strain, instead returning zero-valued tensor", myrank, 0 );
+	return zerot3x3();
+}
+
+
 vMises specOutIncr::rve_volume_averaged_scalars( t3x3 const & eps, t3x3 const & cau)
 {
 	vMises res = vMises(computeMises(eps, false), computeMises(cau, true));
-cout << "RVE vMisesStrain " << res.vMisesEquivStrain << endl;
-cout << "RVE vMisesStress " << res.vMisesEquivStress << endl;
+//cout << "RVE vMisesStrain " << res.vMisesEquivStrain << "\n";
+//cout << "RVE vMisesStress " << res.vMisesEquivStress << "\n";
 	return res;
 }
 
 
-void specOutIncr::analyze_addStrainTensors()
+void specOutIncr::analyze_addStrainTensors_mp()
 {
 	double tic = MPI_Wtime();
 
-	//##MK::assure that IntelMKL is not called multithreaded here! only one should be multithreaded here SVD of 3x3 tensors is peanuts therefore run IntelMKL sequentially on every thread
+	//##MK::assure that IntelMKL is not called multithreaded here!
+	//running a single SVD of a general 3x3 tensors is peanuts compared to if you have to do so for every material point (mp)
+	//therefore run IntelMKL such that each thread processes set of mps but individual threads do so sequentially
 
 	#pragma omp parallel
 	{
+		double mytic = omp_get_wtime();
+
 		unsigned int mt = static_cast<unsigned int>(omp_get_thread_num());
-		bool mystatus = true;
+		bool mystatus = true; //assume we are healty
 		memRegion* thisregion = db.at(mt);
 		size_t eipid_n = thisregion->eipid_n;
 
 		for ( size_t i = 0; i < eipid_n; ++i ) {
-			t3x3 Fnow = thisregion->crystallite.F.at(i);
+			//##MK::MK original
+			//t3x3 Fnow = thisregion->crystallite.F.at(i); //##MK::have this as well
+			//##MK::MK initially used for Matthew Kasemer during test jobs
+			//t3x3 Fnow = thisregion->crystallite.Fp.at(i);
 
-			t3x3 TrueStrain = failt3x3();
-			mystatus = computeStrainTensor( Fnow, TrueStrain );
+			//##MK::finally used by Matt Kasemer for R value production job
 
+			t3x3 FF = thisregion->crystallite.F.at(i);
+			t3x3 TrueStrainBasedOnF = failt3x3();
+			if ( computeStrainTensor2( FF, taskops.whichstraintensor, taskops.whichstrainmodel, TrueStrainBasedOnF ) == false )
+				mystatus = false;
+			//else mystatus remains how it was
+
+			t3x3 FpFp = thisregion->crystallite.Fp.at(i);
+			t3x3 TrueStrainBasedOnFp = failt3x3();
+			if ( computeStrainTensor2( FpFp, taskops.whichstraintensor, taskops.whichstrainmodel, TrueStrainBasedOnFp ) == false )
+				mystatus = false;
+			//else mystatus remains how it was
+
+
+			t3x3 PP = thisregion->crystallite.P.at(i);
+			t3x3 Cauchyy = failt3x3();
+			if ( computeCauchy( FF, PP, Cauchyy ) == false ) {
+				mystatus = false;
+			}
+
+			//Cauchy stress tensor per point
+
+			//##MK::DEBUG
 /*
- 	 	 	//##MK::DEBUG
+ 	 	 	 cout << i << "\t\t" << TrueStrain.a11 << ";" << TrueStrain.a12<< ";" << TrueStrain.a13 << ";"
+					<< TrueStrain.a21 << ";" << TrueStrain.a22 << ";" << TrueStrain.a23 << ";"
+					<< TrueStrain.a31 << ";"<< TrueStrain.a32 << ";" << TrueStrain.a33 << "\n";
+
+
 			#pragma omp critical
 			{
 				if (mystatus == true)
-cout << "ThreadID " << tid << " Gridpoint " << i << " --> " << "UStrain " << TrueStrain << endl;
+cout << "ThreadID " << tid << " Gridpoint " << i << " --> " << "UStrain " << TrueStrain << "\n";
 				else
-cout << "ThreadID " << tid << " Gridpoint " << i << " --> " << "IMKL call did not converge or failed!" << endl;
+cout << "ThreadID " << tid << " Gridpoint " << i << " --> " << "IMKL call did not converge or failed!" << "\n";
 			}
 			//##MK::END OF DEBUG, in production version comment out this critical region!
 */
 
-			thisregion->crystallite.straintensor.push_back( TrueStrain );
+			thisregion->crystallite.straintensor1.push_back( TrueStrainBasedOnF );
+			thisregion->crystallite.straintensor2.push_back( TrueStrainBasedOnFp );
 
-		} //threadlocal processing of tensors
+			thisregion->crystallite.stresstensor.push_back( Cauchyy );
+
+		} //thread-local processing of tensors completed
 		//MK::as the IntelMKL is threadsafe multiple calls to it dont interfere
 		//MK::however for optimal performance choose either MKL_NUM_THREADS = 1 && OMP_NUM_THREADS max,
 		//in this case all physical cores call in parallel the IntelMKL but make a quasi-sequential call
@@ -4812,8 +5304,16 @@ cout << "ThreadID " << tid << " Gridpoint " << i << " --> " << "IMKL call did no
 		//processing of grid data proceeds sequentially but with individually potentially threadparallel IMKL calls,
 		//however as the granularity in this case is fine, and for 3x3 tensor the problem size either
 		//way much too small to justify in every entry the setup of a threading region within MKL, very likely
-		//option 1 --- making individual sequential calls to IMKL but having OMP threads per MPI process working on data is
-		//most efficient
+		//option 1 --- making individual sequential calls to IMKL but having OMP threads per MPI process working
+		//on data will be most efficient
+		double mytoc = omp_get_wtime();
+		#pragma omp critical
+		{
+			if ( mystatus == true )
+				cout << "Thread " << mt << " addStrainTensor_mp local part successfully completed, took " << (mytoc-mytic) << " seconds" << "\n";
+			else
+				cerr << "Thread " << mt << " addStrainTensor_mp local part failed, took " << (mytoc-mytic) << " seconds" << "\n";
+		}
 
 	} //end of parallel region
 
@@ -4827,8 +5327,10 @@ cout << "ThreadID " << tid << " Gridpoint " << i << " --> " << "IMKL call did no
 			cout << here->at(r);
 		}
 	}*/
+
 	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "Processing::AddStrainTensors" + to_string(thisincrement)));
+	memsnapshot mm = memsnapshot(); //tictoc.get_memoryconsumption();
+	tictoc.prof_elpsdtime_and_mem( "AddStrainTensors", APT_UTL, APT_IS_PAR, mm, tic, toc, thisincrement);
 }
 
 
@@ -4840,6 +5342,8 @@ void specOutIncr::analyze_addCauchy()
 
 	#pragma omp parallel
 	{
+		double mytic = omp_get_wtime();
+
 		unsigned int mt = static_cast<unsigned int>(omp_get_thread_num());
 		bool mystatus = true;
 		memRegion* thisregion = db.at(mt);
@@ -4851,16 +5355,19 @@ void specOutIncr::analyze_addCauchy()
 
 			t3x3 Cauchyy = failt3x3();
 
-			mystatus = computeCauchy( Fnow, Pnow, Cauchyy );
+			if ( computeCauchy( Fnow, Pnow, Cauchyy ) == false ) {
+				mystatus = false;
+			}
+			//else mystatus is not changed
 
 /*
 			//##MK::DEBUG
 			#pragma omp critical
 			{
 				if (mystatus == true)
-cout << "ThreadID " << tid << " Gridpoint " << i << " --> " << "Cauchy " << Cauchyy << endl;
+cout << "ThreadID " << tid << " Gridpoint " << i << " --> " << "Cauchy " << Cauchyy << "\n";
 				else
-cout << "ThreadID " << tid << " Gridpoint " << i << " --> " << "IMKL call did not converge or failed!" << endl;
+cerr << "ThreadID " << tid << " Gridpoint " << i << " --> " << "IMKL call did not converge or failed!" << "\n";
 			}
 			//##MK::END OF DEBUG, in production version comment out this critical region!
 */
@@ -4868,9 +5375,21 @@ cout << "ThreadID " << tid << " Gridpoint " << i << " --> " << "IMKL call did no
 			thisregion->crystallite.stresstensor.push_back( Cauchyy );
 
 		} //threadlocal processing of tensors
+
+		double mytoc = omp_get_wtime();
+		#pragma omp critical
+		{
+			if ( mystatus == true )
+				cout << "Thread " << mt << " addCauchy local part successfully completed, took " << (mytoc-mytic) << " seconds" << "\n";
+			else
+				cerr << "Thread " << mt << " addCauchy local part failed, took " << (mytoc-mytic) << " seconds" << "\n";
+		}
+
 	} //end of parallel region
+
 	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "Processing::AddCauchy" + to_string(thisincrement)));
+
+	//tictoc.push_back(plog(tic, toc, "Processing::AddCauchy" + to_string(thisincrement)));
 }
 
 
@@ -4889,7 +5408,7 @@ void specOutIncr::analyze_addVonMises()
 
 		for ( size_t i = 0; i < eipid_n; ++i ) {
 
-			t3x3 Strainn = thisregion->crystallite.straintensor.at(i);
+			t3x3 Strainn = thisregion->crystallite.straintensor1.at(i); //##MK::based on F
 			t3x3 Cauchyy = thisregion->crystallite.stresstensor.at(i);
 
 			vMises res = vMises(computeMises(Strainn, false), computeMises(Cauchyy, true));
@@ -4898,7 +5417,7 @@ void specOutIncr::analyze_addVonMises()
 			//##MK::DEBUG
 			#pragma omp critical
 			{
-cout << "ThreadID " << tid << " Gridpoint " << i << " --> " << "vMisesUStrain " << res.vMisesEquivStrain << " vMisesCauchyStress " << res.vMisesEquivStress << endl;
+cout << "ThreadID " << tid << " Gridpoint " << i << " --> " << "vMisesUStrain " << res.vMisesEquivStrain << " vMisesCauchyStress " << res.vMisesEquivStress << "\n";
 			}
 			//##MK::END OF DEBUG, in production version comment out this critical region!
 */
@@ -4906,15 +5425,17 @@ cout << "ThreadID " << tid << " Gridpoint " << i << " --> " << "vMisesUStrain " 
 			thisregion->crystallite.scalars.push_back( res );
 		} //threadlocal processing of tensors
 	} //end of parallel region
+
 	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "Processing::AddVonMises" + to_string(thisincrement)));
+
+	//tictoc.push_back(plog(tic, toc, "Processing::AddVonMises" + to_string(thisincrement)));
 }
 
 
 void specOutIncr::analyze_addDisplacements()
 {
 	//compute displacement (fluctuant and average) or fall back to zero
-	double tic = MPI_Wtime();
+	//double tic = MPI_Wtime();
 
 	//get integration point grid of the RVE in initial configuration
 	unsigned int NXold = head.N;
@@ -4948,17 +5469,17 @@ void specOutIncr::analyze_addDisplacements()
 			sx.insert( coordinates_are_here->at(i).x );
 			sy.insert( coordinates_are_here->at(i).y );
 			sz.insert( coordinates_are_here->at(i).z );
-//cout << p.back() << endl;
+//cout << p.back() << "\n";
 		}
 
 		size_t nj = db.at(mr)->crystallite.F.size();
 		vector<t3x3>* defgrads_are_here = &db.at(mr)->crystallite.F;
 		for (size_t j = 0; j < nj; ++j) {
 			f.push_back(defgrads_are_here->at(j));
-//cout << f.back() << endl;
+//cout << f.back() << "\n";
 		}
 	}
-cout << "Loaded xyz and F" << endl;
+//cout << "Loaded xyz and F" << "\n";
 
 	//get unique coordinates and size of the mesh
 	vector<real_xyz> ux;
@@ -4970,7 +5491,7 @@ cout << "Loaded xyz and F" << endl;
 
 	//aabb3d corner = get_corners( ux, uy, uz );
 
-cout << "Unique integration point grid coordinates and AABB about these identified" << endl;
+cout << "Unique integration point grid coordinates and AABB about these identified" << "\n";
 
 	//Intel MKL requires scaling factors consistent with precision
 	double size[3] = { static_cast<double>(head.L.x), static_cast<double>(head.L.y), static_cast<double>(head.L.z) };
@@ -4992,17 +5513,17 @@ cout << "Unique integration point grid coordinates and AABB about these identifi
 	nFWTransforms = fourier_transform_defgradient( f, grid, size, defgrad_forwardFFT );
 
 	if ( nFWTransforms == 9 ) {
-cout << "All components of the deformation gradient tensor successfully Fourier transformed" << endl;
+cout << "All components of the deformation gradient tensor successfully Fourier transformed" << "\n";
 
 		//compute average displacements based on the 9 successful forwardFFTs
 		displacement_average( defgrad_forwardFFT, grid, size, displ_avg );
-cout << "All average displacements computed based on forward Fourier transforms" << endl;
+cout << "All average displacements computed based on forward Fourier transforms" << "\n";
 
 		//compute fluctuant displacements including three inverse 3d fourier transform results for coordinates 1-->0, 2-->1, and 3-->2
 		nBKTransforms = displacement_fluctuations( defgrad_forwardFFT, grid, size, displ_backwardFFT, displ_flu );
 
 		if ( nBKTransforms == 3 ) { //if also these were successful so copy in threadlocal memory
-cout << "All fluctuant displacements computed from successful inverse Fourier transform" << endl;
+cout << "All fluctuant displacements computed from successful inverse Fourier transform" << "\n";
 
 			#pragma omp parallel
 			{
@@ -5022,11 +5543,11 @@ cout << "All fluctuant displacements computed from successful inverse Fourier tr
 
 		}
 		else {
-			cout << "Error in inverse Fourier transform during computing fluctuant contributions" << endl;
+			cerr << "Error in inverse Fourier transform during computing fluctuant contributions" << "\n";
 		}
 	}
 	else {
-		cout << "Error in forward Fourier transform during computing deformation gradient transforms" << endl;
+		cerr << "Error in forward Fourier transform during computing deformation gradient transforms" << "\n";
 	}
 
 	//clear components ffts, if existent
@@ -5045,15 +5566,15 @@ cout << "All fluctuant displacements computed from successful inverse Fourier tr
 		}
 	}
 
-	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "Processing::AddDisplacements" + to_string(thisincrement)));
+	//double toc = MPI_Wtime();
+	//tictoc.push_back(plog(tic, toc, "Processing::AddDisplacements" + to_string(thisincrement)));
 }
 
 
 void specOutIncr::analyze_ignoreDisplacements()
 {
 	//MK::add zero displacements to allow utilizing the same periodic grid construction irrespective of displacement handling
-	double tic = MPI_Wtime();
+	//double tic = MPI_Wtime();
 
 	#pragma omp parallel
 	{
@@ -5070,14 +5591,15 @@ void specOutIncr::analyze_ignoreDisplacements()
 		}
 	} //end of parallel region
 
-	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "Processing::IgnoreDisplacements" + to_string(thisincrement)));
+	//double toc = MPI_Wtime();
+	//tictoc.push_back(plog(tic, toc, "Processing::IgnoreDisplacements" + to_string(thisincrement)));
 }
 
 
 void specOutIncr::analyze_addRVEAverages( const unsigned int lc, const unsigned int li, const unsigned int glbincrid )
 {
 	double tic = MPI_Wtime();
+
 	avg.push_back( rveAverageResults() );
 	avg.back().loadcaseID = lc;
 	avg.back().localincrID = li;
@@ -5085,34 +5607,108 @@ void specOutIncr::analyze_addRVEAverages( const unsigned int lc, const unsigned 
 
 	//get RVE-volume average value of F and P
 	avg.back().Vtotal = rve_volume_total();
-cout << "RVETotalVolume V is" << endl << avg.back().Vtotal << endl;
+//cout << "RVETotalVolume V is" << "\n" << avg.back().Vtotal << "\n";
 
 	avg.back().Fpavgrve = rve_volume_averaged_defpgradient();
-cout << "RVEVolAveraged Fp is" << endl << avg.back().Fpavgrve << endl;
+//cout << "RVEVolAveraged Fp is" << "\n" << avg.back().Fpavgrve << "\n";
 
 	avg.back().Favgrve = rve_volume_averaged_defgradient();
-cout << "RVEVolAveraged F is" << endl << avg.back().Favgrve << endl;
+//cout << "RVEVolAveraged F is" << "\n" << avg.back().Favgrve << "\n";
 
 	avg.back().Pavgrve = rve_volume_averaged_piolastress();
-cout << "RVEVolAveraged P is" << endl << avg.back().Pavgrve << endl;
+//cout << "RVEVolAveraged P is" << "\n" << avg.back().Pavgrve << "\n";
 
 	avg.back().Strainavgrve = rve_volume_averaged_truestrain( avg.back().Favgrve, avg.back().Pavgrve );
-cout << "RVEVolAveraged TrueStrain is" << endl << avg.back().Strainavgrve << endl;
+//cout << "RVEVolAveraged TrueStrain is" << "\n" << avg.back().Strainavgrve << "\n";
 
 	avg.back().Cauchyavgrve = rve_volume_averaged_cauchystress( avg.back().Favgrve, avg.back().Pavgrve );
-cout << "RVEVolAveraged CauchyStress is" << endl << avg.back().Cauchyavgrve << endl;
+//cout << "RVEVolAveraged CauchyStress is" << "\n" << avg.back().Cauchyavgrve << "\n";
 
 	avg.back().Equivavgrve = rve_volume_averaged_scalars( avg.back().Strainavgrve, avg.back().Cauchyavgrve );
-cout << "RVEVolAveraged vonMises stress " << avg.back().Equivavgrve.vMisesEquivStress << " Pa, true strain " << avg.back().Equivavgrve.vMisesEquivStrain << endl;
+//cout << "RVEVolAveraged vonMises stress " << avg.back().Equivavgrve.vMisesEquivStress << " Pa, true strain " << avg.back().Equivavgrve.vMisesEquivStrain << "\n";
 
 	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "Processing::AddRVEAverages" + to_string(thisincrement)));
+
+	//tictoc.push_back(plog(tic, toc, "Processing::AddRVEAverages" + to_string(thisincrement)));
 }
+
+
+void specOutIncr::analyze_addRVEAverages2( const unsigned int lc, const unsigned int li, const unsigned int glbincrid )
+{
+	//##MK::currently used for Matthew
+	double tic = MPI_Wtime();
+
+	avg2.push_back( rveAverageResults2() );
+	avg2.back().info = whenTaken( lc, li, glbincrid );
+
+	//##MK::better replace current results storing in crystallite using a smartvector which knows which physical results it keeps
+	avg2.back().RVEAvgScalar.insert(
+			make_pair(V_VOLUME, rve_summated_equalweighting(V_VOLUME)) );
+	avg2.back().RVEAvgTensorial.insert(
+			make_pair(F_TOTAL, rve_averaged_equalweighting(F_TOTAL)) );
+	//avg2.back().RVEAvgTensorial.insert(
+	//		make_pair(F_PLASTIC, rve_averaged_equalweighting(F_PLASTIC)) ); //##MK::averaging of Fp for makes no sense for DAMASK
+	//##MK::Matthew does not have this but Markus --> I need to change this to one the fly score board which are there and which not of constitutive or not...
+	avg2.back().RVEAvgTensorial.insert(
+			make_pair(P_STRESS, rve_averaged_equalweighting(P_STRESS)) );
+
+	//##MK::for Matthew
+	avg2.back().RVEAvgTensorial.insert(
+			make_pair(EPS_RIGHTCAUCHYGREEN_LN_FT, rve_averaged_equalweighting(EPS_RIGHTCAUCHYGREEN_LN_FT)) );
+	avg2.back().RVEAvgTensorial.insert(
+			make_pair(EPS_RIGHTCAUCHYGREEN_LN_FP, rve_averaged_equalweighting(EPS_RIGHTCAUCHYGREEN_LN_FP)) );
+	avg2.back().RVEAvgTensorial.insert(
+			make_pair(CAUCHY_STRESS, rve_averaged_equalweighting(CAUCHY_STRESS)) );
+
+	//Cauchy mat point average RVE stress t3x3
+	//Cauchy strain tensor
+
+	/*
+	//Cauchy stress and logarithmic strain used in engineering community
+	avg2.back().RVEAvgTensorial.insert( make_pair(CAUCHY_STRESS,
+				rve_volume_averaged_cauchystress( avg2.back().RVEAvgTensorial[F_TOTAL], avg2.back().RVEAvgTensorial[P_STRESS] )) );
+	cout << "RVEVolAveraged CauchyStress is" << "\n" << avg2.back().RVEAvgTensorial[CAUCHY_STRESS] << "\n";
+
+	avg2.back().RVEAvgTensorial.insert( make_pair(TRUE_STRAIN,
+			rve_volume_averaged_truestrain( avg2.back().RVEAvgTensorial[F_TOTAL], avg2.back().RVEAvgTensorial[P_STRESS] )) );
+	cout << "RVEVolAveraged TrueStrain is" << "\n" << avg.back().Strainavgrve << "\n";
+
+	vMises mises = rve_volume_averaged_scalars( avg2.back().RVEAvgTensorial[TRUE_STRAIN], avg2.back().RVEAvgTensorial[CAUCHY_STRESS] );
+	cout << "RVEVolAveraged vonMises stress " << mises.vMisesEquivStress << " Pa, true strain " << mises.vMisesEquivStrain << "\n";
+
+	avg2.back().RVEAvgScalar.insert( make_pair(VONMISES_STRAIN, mises.vMisesEquivStrain) );
+	avg2.back().RVEAvgScalar.insert( make_pair(VONMISES_STRESS, mises.vMisesEquivStress) );
+	*/
+
+	double toc = MPI_Wtime();
+	memsnapshot mm = memsnapshot(); //tictoc.get_memoryconsumption();
+	tictoc.prof_elpsdtime_and_mem( "AddRVEAveragesMP", APT_UTL, APT_IS_PAR, mm, tic, toc, thisincrement);
+}
+
+
+/*
+void specOutIncr::analyze_optionalRVEAverages( const unsigned int lc, const unsigned int li, const unsigned int glbincrid )
+{
+	//##MK::prototype for the new option-sensitive rve averaging
+	double tic = MPI_Wtime();
+	avg2.push_back( rveAverageResults2() );
+	avg2.back().info = whenTaken( lc, li, glbincrid );
+
+	string what = taskops.get_strainopts();
+	t3x3 tmp = rve_volume_averaged_strain();
+	avg2.back().RVEAvgTensorial.insert( make_pair(what, tmp) );
+cout << "RVETotalVolume V is" << "\n" << avg2.back().RVEAvgTensorial[what] << "\n";
+
+	double toc = MPI_Wtime();
+	tictoc.push_back(plog(tic, toc, "Processing::OptionalRVEAverages" + to_string(thisincrement)));
+}
+*/
 
 
 void specOutIncr::analyze_ipgrid_displacements()
 {
 	double tic = MPI_Wtime();
+
 	//##MK::so far only for cubic domains
 	rveBaseIni = bv3x3(
 			//first base vector parallel to axis 1 initial undeformed configuration
@@ -5136,13 +5732,17 @@ void specOutIncr::analyze_ipgrid_displacements()
 	//these averaged tensors are stored in this->avg.Favgrve for instance
 
 	//base vectors in deformed configuration = Frveavg left multiplied bv3x3
-cout << "Base column vectors in initial configuration" << endl;
-cout << rveBaseIni << endl;
+//cout << "Base column vectors in initial configuration" << "\n";
+//cout << rveBaseIni << "\n";
 
-	rveBaseDef = leftmult( avg.back().Favgrve, rveBaseIni );
+//cout << "RVEAvgTensorial[F_TOTAL]" << "\n";
+//cout << avg2.back().RVEAvgTensorial[F_TOTAL] << "\n";
 
-cout << "Base vectors in deformed configuration" << endl;
-cout <<  rveBaseDef << endl;
+	rveBaseDef = leftmult( avg2.back().RVEAvgTensorial[F_TOTAL], rveBaseIni );
+	//rveBaseDef = leftmult( avg.back().Favgrve, rveBaseIni );
+
+//cout << "Base vectors in deformed configuration" << "\n";
+//cout <<  rveBaseDef << "\n";
 
 	//make these distorted base column vector matrix known to all memory regions
 	//because they are needed to compute the periodic replica images of the integration point grid when Settings::AnalyzeStateVarSpatialDistr == true
@@ -5154,6 +5754,7 @@ cout <<  rveBaseDef << endl;
 		reporting("Deformation-induced integration point grid displacements/distortions are accounted for", myrank, 0, false);
 
 		if ( head.NX == head.NY && head.NX == head.NZ ) {
+			reporting("The integration point grid displacements/distortions are accounted for", myrank, 0, false );
 			//##MK::IntelMKL-powered computing of individual integration point grid new coordinates
 			//is currently supported for cubic point grid with size [1.0 1.0 1.0] only
 
@@ -5180,8 +5781,10 @@ cout <<  rveBaseDef << endl;
 
 		analyze_ignoreDisplacements();
 	} //assuming distances in undeformed configuration
+
 	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "Processing::Displacements" + to_string(thisincrement)));
+	memsnapshot mm = memsnapshot(); //tictoc.get_memoryconsumption();
+	tictoc.prof_elpsdtime_and_mem( "AddDisplacements", APT_UTL, APT_IS_PAR, mm, tic, toc, thisincrement);
 }
 
 //##MK::strictly speaking these functions must be called from an memRegion object within a parallel region
@@ -5225,7 +5828,7 @@ void specOutIncr::specout_read_heavydata1()
 
 		#pragma omp master
 		{
-cout << "ElementsTotal/BlockTarget/Now " << ElementsTotal << ";" << ElementsPerBlockTarget << ";" << ElementsPerBlockNow << endl;
+cout << "ElementsTotal/BlockTarget/Now " << ElementsTotal << ";" << ElementsPerBlockTarget << ";" << ElementsPerBlockNow << "\n";
 			//MK::MPI_THREAD_FUNNELED, only master thread makes MPI calls!
 			nalloc = ElementsPerBlockNow * static_cast<size_t>(head.matpres);
 			try { buf = new double[nalloc]; }
@@ -5254,7 +5857,7 @@ cout << "ElementsTotal/BlockTarget/Now " << ElementsTotal << ";" << ElementsPerB
 			databytes_preceeding_incs *= static_cast<long long>(head.Ncp);
 
 			offset = static_cast<long long>(head.FirstByteAfterHeader) + databytes_preceeding_incs;
-cout << "Starting offset " << offset << endl;
+cout << "Starting offset " << offset << "\n";
 
 			#pragma omp master
 			{
@@ -5268,7 +5871,7 @@ cout << "Starting offset " << offset << endl;
 
 				MPI_Offset now;
 				MPI_File_get_position(ioReadFileHdl, &now);
-cout << "MPI Offset " << static_cast<long long>(now) <<  endl;
+cout << "MPI Offset " << static_cast<long long>(now) <<  "\n";
 				//##ERROR handling
 			}
 			#pragma omp barrier
@@ -5301,7 +5904,7 @@ cout << "MPI Offset " << static_cast<long long>(now) <<  endl;
 						}
 						if ( mehealthy == true ) {
 							//now that we have a buffer, clear it DEBUG to detect data inconsistencies quicker
-							for ( size_t i = 0; i < nalloc; ++i ) { buf[i] = numeric_limits<real>::max(); } //0.0; }//##MK::debug - clear buffer
+							for ( size_t i = 0; i < nalloc; ++i ) { buf[i] = numeric_limits<double>::max(); } //0.0; }//##MK::debug - clear buffer
 						}
 
 					}
@@ -5313,17 +5916,17 @@ cout << "MPI Offset " << static_cast<long long>(now) <<  endl;
 				#pragma omp master
 				{
 					int len = static_cast<int>(nalloc);
-	cout << "On Master NAlloc sizet / int" << nalloc << "--" << len << endl;
+	cout << "On Master NAlloc sizet / int" << nalloc << "--" << len << "\n";
 					MPI_File_read_at( ioReadFileHdl, offset, buf, len, MPI_DOUBLE, &ioReadFileStatus); //implicit advance of fp
 
 					int count = -1;
-	cout << "count " << count << endl;
+	cout << "count " << count << "\n";
 					MPI_Get_count( &ioReadFileStatus, MPI_INT, &count );
-	cout << "MPIStatus get count " << count << endl;
-//for (size_t i = 0; i < nalloc; ++i) { cout << buf[i] << endl; }
+	cout << "MPIStatus get count " << count << "\n";
+//for (size_t i = 0; i < nalloc; ++i) { cout << buf[i] << "\n"; }
 					MPI_Offset now;
 					MPI_File_get_position(ioReadFileHdl, &now);
-	cout << "MPI Offset read ElementsReadAlready " << ElementsReadAlready << ";" << static_cast<long long>(now) <<  endl;
+	cout << "MPI Offset read ElementsReadAlready " << ElementsReadAlready << ";" << static_cast<long long>(now) <<  "\n";
 					//##MK::data have arrived
 				}
 				//necessary, threads have to wait for data to arrive
@@ -5368,6 +5971,7 @@ void specOutIncr::specout_read_heavydata2()
 	//###MK::endianness checks
 
 	double tic = MPI_Wtime();
+
 	double ltic = 0.0; //local tictoc
 	double ltoc = 0.0;
 	double tasks[4] = {0.0, 0.0, 0.0, 0.0}; //MPI read, homog interpret, cryst interpret, const interpret
@@ -5388,7 +5992,7 @@ void specOutIncr::specout_read_heavydata2()
 	//for how many ips do we have heavy data read already from the file
 	size_t ElementsReadAlready = 0;
 
-cout << "ElementsTotal/BlockTarget/Now " << ElementsTotal << ";" << ElementsPerBlockTarget << ";" << ElementsPerBlockNow << endl;
+//cout << "ElementsTotal/BlockTarget/Now " << ElementsTotal << ";" << ElementsPerBlockTarget << ";" << ElementsPerBlockNow << "\n";
 	nalloc = ElementsPerBlockNow * static_cast<size_t>(head.matpres);
 	try { buf = new double[nalloc]; }
 	catch (std::bad_alloc &croak) {
@@ -5409,10 +6013,10 @@ cout << "ElementsTotal/BlockTarget/Now " << ElementsTotal << ";" << ElementsPerB
 		databytes_preceeding_incs *= static_cast<long long>(head.Ncp);
 
 		offset = static_cast<long long>(head.FirstByteAfterHeader);
-cout << "FirstByteAfterHeader " << offset << endl;
+//cout << "FirstByteAfterHeader " << offset << "\n";
 
 		offset += databytes_preceeding_incs;
-cout << "Starting offset " << offset << endl;
+//cout << "Starting offset " << offset << "\n";
 
 		MPI_File ioReadFileHdl;
 		MPI_Status ioReadFileStatus;
@@ -5424,7 +6028,7 @@ cout << "Starting offset " << offset << endl;
 
 		MPI_Offset now;
 		MPI_File_get_position(ioReadFileHdl, &now);
-cout << "MPI Offset " << static_cast<long long>(now) <<  endl;
+//cout << "MPI Offset " << static_cast<long long>(now) <<  "\n";
 		//##ERROR handling
 
 
@@ -5433,7 +6037,7 @@ cout << "MPI Offset " << static_cast<long long>(now) <<  endl;
 		int cc = 0;
 		for ( ElementsReadAlready = 0; ElementsReadAlready < ElementsTotal; ElementsReadAlready += ElementsPerBlockNow) {
 			cc++;
-cout << cc << endl;
+//cout << cc << "\n";
 			if ( (ElementsTotal - ElementsReadAlready) >= ElementsPerBlockTarget ) { //most likely
 				ElementsPerBlockNow = ElementsPerBlockTarget;
 				//keep reutilizing already allocated read buffer for MPI I/O
@@ -5454,7 +6058,9 @@ cout << cc << endl;
 				}
 				if ( healthy == true ) {
 					//now that we have a buffer, clear it DEBUG to detect data inconsistencies quicker
-					for ( size_t i = 0; i < nalloc; ++i ) { buf[i] = numeric_limits<real>::max(); } //0.0; }//##MK::debug - clear buffer
+					for ( size_t i = 0; i < nalloc; ++i ) {
+						buf[i] = numeric_limits<double>::max();
+					} //0.0; }//##MK::debug - clear buffer
 				}
 			}
 
@@ -5462,15 +6068,15 @@ cout << cc << endl;
 			int len = static_cast<int>(nalloc);
 
 			ltic = MPI_Wtime();
-//cout << "On Master NAlloc sizet / int" << nalloc << "--" << len << endl;
+//cout << "On Master NAlloc sizet / int" << nalloc << "--" << len << "\n";
 			MPI_File_read( ioReadFileHdl, buf, len, MPI_DOUBLE, &ioReadFileStatus); //implicit advance of fp
 			ltoc = MPI_Wtime();
 			tasks[0] += (ltoc-ltic);
 
-			//int count = -1; MPI_Get_count( &ioReadFileStatus, MPI_DOUBLE, &count ); cout << "MPIStatus get count " << count << endl;
-			//for (size_t i = 0; i < nalloc; ++i) { cout << buf[i] << endl; }
+			//int count = -1; MPI_Get_count( &ioReadFileStatus, MPI_DOUBLE, &count ); cout << "MPIStatus get count " << count << "\n";
+			//for (size_t i = 0; i < nalloc; ++i) { cout << buf[i] << "\n"; }
 			MPI_Offset now; MPI_File_get_position(ioReadFileHdl, &now);
-cout << "MPI Offset read ElementsReadAlready " << ElementsReadAlready << ";" << static_cast<long long>(now) <<  endl;
+//cout << "MPI Offset read ElementsReadAlready " << ElementsReadAlready << ";" << static_cast<long long>(now) <<  "\n";
 
 			//data have arrived threads can grab in parallel their portion of interest from the buf
 			//all threads probe whether there are useful data in buf knowing in advance their
@@ -5480,14 +6086,14 @@ cout << "MPI Offset read ElementsReadAlready " << ElementsReadAlready << ";" << 
 			//for(size_t j = 0; j < nalloc; j = j + head.matpres) {
 			//	for(unsigned int k = 0; k < head.matpres; ++k)
 			//		cout << buf[j+k] << "__";
-			//	cout << endl;
+			//	cout << "\n";
 			//}
 			//##MK::END DEBUG
 
 			unsigned int nt = db.size();
 			for (unsigned int mt = MASTER; mt < nt; mt++) {
 				ltic = MPI_Wtime();
-				db.at(mt)->db_distr_homogenization( buf, ElementsReadAlready, ElementsPerBlockNow );
+				db.at(mt)->db_distr_homogenization2( buf, ElementsReadAlready, ElementsPerBlockNow );
 				ltoc = MPI_Wtime();
 				tasks[1] += (ltoc-ltic);
 
@@ -5495,7 +6101,7 @@ cout << "MPI Offset read ElementsReadAlready " << ElementsReadAlready << ";" << 
 				db.at(mt)->db_distr_crystallite2( buf, ElementsReadAlready, ElementsPerBlockNow );
 				ltoc = MPI_Wtime();
 				tasks[2] += (ltoc-ltic);
-//cout << tid << " success!" << endl;
+//cout << tid << " success!" << "\n";
 
 				ltic = MPI_Wtime();
 				db.at(mt)->db_distr_constitutive2( buf, ElementsReadAlready, ElementsPerBlockNow );
@@ -5519,6 +6125,7 @@ cout << "MPI Offset read ElementsReadAlready " << ElementsReadAlready << ";" << 
 	reporting( mess, myrank, 0, false);
 
 	double toc = MPI_Wtime();
+	/*
 	mess = "IO:SpecOutReadHeavyDataMPIFileRead" + to_string(thisincrement);
 	tictoc.push_back(plog(tasks[0], mess)); //subtime spent NMPIIO File read library call
 	mess = "IO:SpecOutReadHeavyDataHomogInterpret" + to_string(thisincrement);
@@ -5529,6 +6136,15 @@ cout << "MPI Offset read ElementsReadAlready " << ElementsReadAlready << ";" << 
 	tictoc.push_back(plog(tasks[3], mess));
 	mess = "IO::SpecOutReadHeavyDataOtherTasks" + to_string(thisincrement);
 	tictoc.push_back(plog(((toc-tic)-tasks[0]-tasks[1]-tasks[2]-tasks[3]), mess)); //remainder prep and mem handling
+	*/
+
+	memsnapshot mm = tictoc.get_memoryconsumption();
+	tictoc.prof_elpsdtime_and_mem( "SpecOutHeavyDataRead", APT_MPI_IO, APT_IS_SEQ, mm, tasks[0], thisincrement);
+	tictoc.prof_elpsdtime_and_mem( "SpecOutHeavyDataHomogInterpret", APT_MPI_IO, APT_IS_PAR, mm, tasks[1], thisincrement);
+	tictoc.prof_elpsdtime_and_mem( "SpecOutHeavyDataCrystInterpret", APT_MPI_IO, APT_IS_PAR, mm, tasks[2], thisincrement);
+	tictoc.prof_elpsdtime_and_mem( "SpecOutHeavyDataConstInterpret", APT_MPI_IO, APT_IS_PAR, mm, tasks[3], thisincrement);
+	tictoc.prof_elpsdtime_and_mem( "SpecOutHeavyDataOthers", APT_UTL, APT_IS_SEQ, mm,
+			((toc-tic)-tasks[0]-tasks[1]-tasks[2]-tasks[3]), thisincrement);
 }
 
 
@@ -5545,68 +6161,57 @@ bool specOutIncr::specout_check_heavydata2()
 
 	unsigned int nt = db.size();
 	for (unsigned int mt = MASTER; mt < nt; mt++) {
-//cout << "Databse memRegion " << t << " checking consistence..." << endl;
+//cout << "Databse memRegion " << t << " checking consistence..." << "\n";
 		memRegion* thisregion = db.at(mt);
 
 /*
 //###MK::DEBUG
-cout << endl;
-cout << "V size = " << thisregion->crystallite.V.size() << endl;
-cout << "q size = " << thisregion->crystallite.q.size() << endl;
-cout << "F size = " << thisregion->crystallite.F.size() << endl;
-cout << "rhoe size = " << thisregion->constitutive.rho_e.size() << endl;
-cout << "rhod size = " << thisregion->constitutive.rho_d.size() << endl;
-cout << endl;
+cout << "\n";
+cout << "V size = " << thisregion->crystallite.V.size() << "\n";
+cout << "q size = " << thisregion->crystallite.q.size() << "\n";
+cout << "F size = " << thisregion->crystallite.F.size() << "\n";
+cout << "rhoe size = " << thisregion->constitutive.rho_e.size() << "\n";
+cout << "rhod size = " << thisregion->constitutive.rho_d.size() << "\n";
+cout << "\n";
 */
 
 		if ( thisregion->crystallite.q.size() != thisregion->eipid_n ) {
-//cout << "q size different" << endl;
+cerr << "q size different" << "\n";
 			data_are_consistent = false;
 		}
 		else {
-//cout << "q size consistent" << endl;
+//cout << "q size consistent" << "\n";
 		}
 		if ( thisregion->crystallite.F.size() != thisregion->eipid_n ) {
-//cout << "F size different" << endl;
+cerr << "F size different" << "\n";
 			data_are_consistent = false;
 		}
 		else {
-//cout << "F size consistent" << endl;
+//cout << "F size consistent" << "\n";
 		}
 		if ( thisregion->constitutive.rho_e.size() != (thisregion->eipid_n * thisregion->constitutive.rho_e_mult ) ) {
-//cout << "rho_e size different" << endl;
+cerr << "rho_e size different" << "\n";
 			data_are_consistent = false;
 		}
 		else {
-//cout << "rho_e size the consistent" << endl;
+//cout << "rho_e size the consistent" << "\n";
 		}
 		if ( thisregion->constitutive.rho_d.size() != (thisregion->eipid_n * thisregion->constitutive.rho_d_mult ) ) {
-//cout << "rho_d size different" << endl;
+cerr << "rho_d size different" << "\n";
 			data_are_consistent = false;
 		}
 		else {
-//cout << "rho_d size consistent" << endl;
+//cout << "rho_d size consistent" << "\n";
 		}
 
-//cout << "Database memRegion " << t << " consistent" << endl;
+//cout << "Database memRegion " << t << " consistent" << "\n";
 	} //check next memRegion
 
 	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "IO::SpecOutCheckHeavyData" + to_string(thisincrement) ));
+
+	//tictoc.push_back(plog(tic, toc, "IO::SpecOutCheckHeavyData" + to_string(thisincrement) ));
 
 	return data_are_consistent;
-}
-
-
-void specOutIncr::specout_auxiliarytasks()
-{
-	//##MK::implement auxiliary tasks here
-	double tic = MPI_Wtime();
-
-	//##MK::highly developmental and not optimized for speed
-
-	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "IO::AuxiliaryTasks" + to_string(thisincrement) ));
 }
 
 
@@ -5635,7 +6240,8 @@ void specOutIncr::write_ipgrid_textureid()
 	bool status = vtk_p3dm3( ppp, texid, thisincrement );
 
 	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "IO::AuxiliaryTasks" + to_string(thisincrement) ));
+	memsnapshot mm = memsnapshot(); //tictoc.get_memoryconsumption();
+	tictoc.prof_elpsdtime_and_mem( "VisualizeIPGridTextureID", APT_VIS_IO, APT_IS_SEQ, mm, tic, toc, thisincrement);
 }
 
 
@@ -5651,7 +6257,8 @@ void specOutIncr::bounded_volume_hierarchy()
 	//bvh_xyzm2 containers with x,y,z boostSIMD aligned
 	//bvh_xyzm2 containers with element id
 	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "Processing::BVHXYZM2" + to_string(thisincrement)));
+	memsnapshot mm = tictoc.get_memoryconsumption();
+	tictoc.prof_elpsdtime_and_mem( "BVHforRVE1withGuard", APT_VIS_IO, APT_IS_SEQ, mm, tic, toc, thisincrement);
 }
 
 
@@ -5663,14 +6270,21 @@ void specOutIncr::analyze_svar_closestuip_disoriangle()
 	//whose disorientation is larger than Settings::CriticalDisoriAngle, if any such exists
 	//therefore we require
 
+	reporting( "Correlating state variable values disorientation based...", get_myrank(), 0, true );
+
 	/*this->db.at(0)->constitutive.rho_d_nextfreeslot = 1;
 	this->db.at(0)->homogenization.eid_nextfreeslot = 1;
 	this->db.at(0)->crystallite.F_nextfreeslot = 1;*/
 	double tic = MPI_Wtime();
 
+	/*
 	vector<MPI_DisloSpatDistr_Double> globalres_edge;
 	vector<MPI_DisloSpatDistr_Double> globalres_dipo;
+	*/
+	vector<MPI_Tensor3x3SpatDistr_Double> globalres_stress;
+	vector<MPI_GrainOriSpatDistr_Double> globalres_ori;
 
+	/*
     //sanity checks
 	//##MK::currently only fcc supported!
 	size_t nslipsys = 12;
@@ -5678,10 +6292,11 @@ void specOutIncr::analyze_svar_closestuip_disoriangle()
 		reporting("Attempting to analyze non-supported crystal structure!", myrank, 0, true);
 		return;
 	}
+	*/
 
 	//MK::in case of running sequentially utilize globalresults directly
 
-	#pragma omp parallel shared(globalres_edge, globalres_dipo)
+	#pragma omp parallel shared(globalres_stress,globalres_ori) //globalres_edge, globalres_dipo)
 	{
 		unsigned int nt = static_cast<unsigned int>(omp_get_num_threads());
 		unsigned int mt = static_cast<unsigned int>(omp_get_thread_num());
@@ -5696,8 +6311,12 @@ void specOutIncr::analyze_svar_closestuip_disoriangle()
 		vector<dist> candidates;
 
 		//thread-local results buffer
+		/*
 		vector<MPI_DisloSpatDistr_Double> myres_edge;
 		vector<MPI_DisloSpatDistr_Double> myres_dipo;
+		*/
+		vector<MPI_Tensor3x3SpatDistr_Double> myres_stress;
+		vector<MPI_GrainOriSpatDistr_Double> myres_ori;
 
 		for (size_t e = 0; e < eip_n; ++e, ++eid) { //only the not periodic images of each element non-periodic images are material points to probe for boundary proximity
 
@@ -5733,29 +6352,46 @@ void specOutIncr::analyze_svar_closestuip_disoriangle()
 			myworkload += candidates.size();
 
 			//collect results for I/O
-			if ( nt > SINGLE_THREADED ) {
+			unsigned int g = thisregion->crystallite.GrainID.at(e);
+			real_xyz dist = res.d;
+			squat sq = thisregion->crystallite.q.at(e);
+			t3x3 tens = thisregion->crystallite.stresstensor.at(e);
+
+			if ( nt > SINGLETHREADED ) {
+				/*
 				myres_edge.push_back( MPI_DisloSpatDistr_Double(res.d, thisregion->constitutive.rho_e, e*nslipsys) );
 				myres_dipo.push_back( MPI_DisloSpatDistr_Double(res.d, thisregion->constitutive.rho_d, e*nslipsys) );
+				*/
+				myres_stress.push_back( MPI_Tensor3x3SpatDistr_Double(g, dist, tens) );
+				myres_ori.push_back( MPI_GrainOriSpatDistr_Double(g, dist, sq.q0, sq.q1, sq.q2, sq.q3 ) );
 			}
 			else {
 				//utilize output buffer directly as there is not thread concurrency and we save memory
+				/*
 				globalres_edge.push_back( MPI_DisloSpatDistr_Double(res.d, thisregion->constitutive.rho_e, e*nslipsys) );
 				globalres_dipo.push_back( MPI_DisloSpatDistr_Double(res.d, thisregion->constitutive.rho_d, e*nslipsys) );
+				*/
+
+				globalres_stress.push_back( MPI_Tensor3x3SpatDistr_Double(g, dist, tens) );
+				globalres_ori.push_back( MPI_GrainOriSpatDistr_Double(g, dist, sq.q0, sq.q1, sq.q2, sq.q3) );
 			}
 //}
-//cout << e << "/" << eip_n << endl;
+//cout << e << "/" << eip_n << "\n";
 		} //next element
 
-		//aggregation of thread-local data as the point when the threads enter the critical is not entirely predictable we generate different order in output array
+		//aggregation of thread-local data as the point when the threads enter the critical is not entirely
+		//predictable we generate different order in output array
 		//for debugging purposes undesirable we can improve by enforcing a strict order
 		#pragma omp barrier
+
 		for (unsigned int mr = 0; mr < nt; mr++) {
 			if (mt == mr) { //applies to only one thread at a time, enforced sequentialization
-				if ( nt > SINGLE_THREADED ) { //only necessary when running multithreaded
-					cout << "Thread " << mt << " workload " << myworkload << endl;
+				if ( nt > SINGLETHREADED ) { //only necessary when running multithreaded
+					cout << "Thread " << mt << " workload " << myworkload << "\n";
 					reporting("Computation of higher-order-based distances locally completed", get_myrank(), mt, true);
 
 					//copy threadlocal results critically and individually to global buffer, unsorted...
+					/*
 					if ( myres_edge.size() == myres_dipo.size() ) {
 						size_t ni = myres_edge.size();
 						for (size_t i = 0; i < ni ; ++i) {
@@ -5765,9 +6401,18 @@ void specOutIncr::analyze_svar_closestuip_disoriangle()
 					}
 					else {
 						complaining("Computation of higher-order-based distances resulted in dissimilar long arrays", get_myrank(), mt);
+					}*/
+					size_t ni = 0;
+					ni = myres_stress.size();
+					for(size_t i = 0; i < ni; ++i ) {
+						globalres_stress.push_back( myres_stress[i] );
+					}
+					ni = myres_ori.size();
+					for(size_t i = 0; i < ni; ++i ) {
+						globalres_ori.push_back( myres_ori[i] );
 					}
 				}
-				//else, we are working SINGLE_THREADED then data are already in globalresults_* and myres_* remain empty
+				//else, we are working SINGLETHREADED then data are already in globalresults_* and myres_* remain empty
 				reporting("Computation of higher-order-based distances globally committed", get_myrank(), mt, true);
 			}
 			//mt != mr wait
@@ -5777,8 +6422,8 @@ void specOutIncr::analyze_svar_closestuip_disoriangle()
 		/*//slightly faster because using workload difference-induced gaps productively, however resulting in non-ordered file output
 		#pragma omp critical
 		{
-			if ( nt > SINGLE_THREADED ) { //only necessary when running multithreaded
-				cout << "Thread " << mt << " workload " << myworkload << endl;
+			if ( nt > SINGLETHREADED ) { //only necessary when running multithreaded
+				cout << "Thread " << mt << " workload " << myworkload << "\n";
 				reporting("Computation of higher-order-based distances locally completed", get_myrank(), mt, true);
 
 				//copy threadlocal results critically and individually to global buffer, unsorted...
@@ -5793,7 +6438,7 @@ void specOutIncr::analyze_svar_closestuip_disoriangle()
 					complaining("Computation of higher-order-based distances resulted in dissimilar long arrays", get_myrank(), mt);
 				}
 			}
-			//else, we are working SINGLE_THREADED then data are already in globalresults_* and myres_* remain empty
+			//else, we are working SINGLETHREADED then data are already in globalresults_* and myres_* remain empty
 			reporting("Computation of higher-order-based distances globally committed", get_myrank(), mt, true);
 		}
 		*/
@@ -5811,16 +6456,23 @@ void specOutIncr::analyze_svar_closestuip_disoriangle()
 	bool status = vtk_p3dm3( ppp, textureid, numeric_limits<unsigned int>::max() );
 	//##MK::END OF DEBUG
 	*/
-	//cout << "Total number of suspicious cases " << suspicioustotal << endl;
-
+	//cout << "Total number of suspicious cases " << suspicioustotal << "\n";
 
 	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "Processing::AddStateVarSpatialDistr" + to_string(thisincrement)));
+	memsnapshot mm = tictoc.get_memoryconsumption();
+	tictoc.prof_elpsdtime_and_mem( "addDistanceDisoriBasedCollect", APT_COR, APT_IS_PAR, mm, tic, toc, thisincrement);
 
 	//write_histograms2_ascii(globalresults_d, globalresults_edge, globalresults_dipo);
-	write_histograms2_binary( globalres_edge, globalres_dipo );
+
+	write_histograms2_binary_stress( globalres_stress );
+
+	write_histograms2_binary_ori( globalres_ori );
+
+	//########stress, ori
 
 	//write_searchefficiency(globalresults_ncandidates);
+
+	reporting("Computation of above critical disori angle based correlation matpoint-boundary distance completed", get_myrank(), 0, true);
 }
 
 
@@ -5830,24 +6482,31 @@ void specOutIncr::compute_edge_weights( const size_t central_eid, vector<dist> c
 
 	//get orientation of central point
 	unsigned int ceid = static_cast<unsigned int>(central_eid);
-	quat central_ori = eid2quaternion( central_eid );
-	real_ori qcentral[4] = { central_ori.q0, central_ori.q1, central_ori.q2, central_ori.q3 };
+	squat qcentral = eid2quaternion( central_eid );
 
 	for ( size_t i = 1; i < candidates.size(); ++i ) {
 		//we start at 1 because we exclude self-references as edge
 		unsigned int neid = candidates[i].nbor_eipid;
-		quat nbor_ori = eid2quaternion( neid );
-		real_ori qnbor[4] = { nbor_ori.q0, nbor_ori.q1, nbor_ori.q2, nbor_ori.q3 };
+		float ndist = static_cast<float>(candidates[i].d);
 
-		real_ori q0 = disorientation_q0_fcc( qcentral, qnbor );
+		squat qnbor = eid2quaternion( neid );
 
-		double weight = exp( Settings::CommDetectionDisoriAngleWght * (static_cast<double>(q0) - 1.0) );
+		squat qnbor_minus1 = qnbor.conjugate();
+		//qcand = qcentral * qnbor^-1
 
+		squat qcand = multiply_quaternion( qcentral, qnbor_minus1 );
+		//ori_real theta = disorientation_angle_fcc_grimmer( qcand );
+		pair<ori_real,ori_real> theta = disorientation_angle_fcc_grimmer( qcand );
+		float ndisori = static_cast<float>(theta.second);
+
+		//double weight = exp( Settings::CommDetectionDisoriAngleWght * (static_cast<double>(q0) - 1.0) );
+		//double weight = exp( Settings::CommDetectionDisoriAngleWght * (static_cast<double>(theta) - 1.0) );
+		double weight = exp( Settings::CommDetectionDisoriAngleWght * (theta.first - 1.0) );
 		//##MK::also weight by node distance utilizing scaling constant Settings::CommDetectionDistanceWght
 
-		edgs.push_back( lvwtedge(ceid, neid, weight) ); //multiples will be found vice versa
+		edgs.push_back( lvwtedge(weight, ceid, neid, ndisori, ndist ) ); //multiples will be found vice versa
 
-//cout << edgs.back().src << "\t" << edgs.back().dest << "\t" << edgs.back().wt << endl;
+//cout << edgs.back().src << "\t" << edgs.back().dest << "\t" << edgs.back().wt << "\n";
 	}
 }
 
@@ -5856,23 +6515,26 @@ void specOutIncr::write_edge_weights( vector<lvwtedge> const & edgs )
 {
 	//	ofstream out( "10g10x10x10_01_tensionX.0.edges.bin", ofstream::binary);
 	//	out.write( (char*)&edges[0], edges.size() * sizeof(lvwtedge) );
-	//cout << "Written to 10g10x10x10_01_tensionX.0.edges.bin" << endl;
-	string fn = "LOUVAIN.DEBUG.SimID." + to_string(Settings::SimID) + ".Incr." + to_string(thisincrement) + ".txt";
+	//cout << "Written to 10g10x10x10_01_tensionX.0.edges.bin" << "\n";
+	string fn = "LOUVAIN.DEBUG.EdgeWeights.SimID." + to_string(Settings::SimID) + ".Rank." + to_string(get_myrank());
+	fn += ".Incr." + to_string(thisincrement) + ".txt";
 	ofstream ascii;
 	ascii.open(fn.c_str(), ofstream::out | ofstream::trunc);
+	ascii << "i;Weight;SourceMatpoint;DestMatpoint;Disori;Distance" << "\n";
+
 	if (ascii.is_open() == true) { //headerless
-		for (size_t i = 0; i < edgs.size(); ++i)
-			ascii << edgs[i].src << "\t" << edgs[i].dest << "\t" << edgs[i].wt << endl;
-		//ascii.flush();
+		for (size_t i = 0; i < edgs.size(); ++i) {
+			ascii << i << ";" << edgs[i].wt << ";" << edgs[i].src << ";" << edgs[i].dest << ";" << edgs[i].disori << ";" << edgs[i].distance << "\n";
+		}
 		ascii.close();
 	}
-cout << "Written to " << fn << endl;
+cout << "Written edge weights to " << fn << "\n";
 }
 
 
 void specOutIncr::hierarchical_community_detection( vector<lvwtedge> const & edgs, vector<unsigned int> & uip2community )
 {
-	cerr << setprecision(18);
+	//cerr << setprecision(18);
 
 	class louvainHdl* lvseqworker = NULL;
 	try {
@@ -5886,7 +6548,7 @@ void specOutIncr::hierarchical_community_detection( vector<lvwtedge> const & edg
 
 	lvseqworker->execute( edgs, uip2community );
 
-	lvseqworker->profiling();
+	lvseqworker->profiling( get_myrank(), thisincrement );
 
 	if ( lvseqworker != NULL ) {
 		delete lvseqworker;
@@ -5897,8 +6559,11 @@ void specOutIncr::hierarchical_community_detection( vector<lvwtedge> const & edg
 
 void specOutIncr::analyze_identify_grains()
 {
-	double tic, toc;
+	double tic = 0.0;
+	double toc = 0.0;
+
 	tic = MPI_Wtime();
+	memsnapshot mm = memsnapshot();
 
 	//##MK::own data structure for polycrystal in the future taking care of spatial placement of grains
 	vector<unsigned int> uniqueip2community;
@@ -5917,7 +6582,8 @@ void specOutIncr::analyze_identify_grains()
 		//##MK::END DEBUG
 
 		toc = MPI_Wtime();
-		tictoc.push_back(plog(tic, toc, "Processing::AddGrainIdentTextureID" + to_string(thisincrement)));
+		mm = memsnapshot(); //tictoc.get_memoryconsumption();
+		tictoc.prof_elpsdtime_and_mem( "AddGrainTextureIDBased", APT_GRA, APT_IS_SEQ, mm, tic, toc, thisincrement);
 	}
 	else if (Settings::GrainReconModel == E_HIERARCHICAL_CLUSTERING) {
 
@@ -5948,24 +6614,27 @@ void specOutIncr::analyze_identify_grains()
 
 				eid++;
 			}
-	cout << "Edge weights for memRegion " << mr << " computed" << endl;
+//cout << "Edge weights for memRegion " << mr << " computed" << "\n";
 		}
 
 		toc = MPI_Wtime();
-		tictoc.push_back(plog(tic, toc, "Processing::AddGrainIdentPrepareEdgeWeights" + to_string(thisincrement)));
+		mm = memsnapshot(); //tictoc.get_memoryconsumption();
+		tictoc.prof_elpsdtime_and_mem( "AddGrainLouvainBasedPrepare", APT_GRA, APT_IS_SEQ, mm, tic, toc, thisincrement);
 
-cout << "Total edge relations " << edges.size() << endl;
+cout << "Total edge relations " << edges.size() << "\n";
 
 		tic = MPI_Wtime();
 
-		//#MK::BEGIN DEBUGGING
-		//write_edge_weights( edges );
-		//##MK::END DEBUGGING
+		if( Settings::VisLOUVAINGraphEdges > 0 ) {
+			write_edge_weights( edges );
+		}
 
+		//passing edge weight graph and labels to LOUVAIN hierarchical community detection algorithm
 		hierarchical_community_detection( edges, uniqueip2community );
 
 		toc = MPI_Wtime();
-		tictoc.push_back(plog(tic, toc, "Processing::AddGrainIdentCommunityLouvain" + to_string(thisincrement)));
+		mm = memsnapshot(); //tictoc.get_memoryconsumption();
+		tictoc.prof_elpsdtime_and_mem( "AddGrainLouvainBasedRunCommunityAlgo", APT_GRA, APT_IS_SEQ, mm, tic, toc, thisincrement);
 	}
 	else {
 		string mess = "No message found to identify grains";
@@ -5978,24 +6647,58 @@ cout << "Total edge relations " << edges.size() << endl;
 
 	grains.build( uniqueip2community );
 
+	/*//use uniqueip2community also to feedback identified grain IDs to crystallite.GrainID!
+	//remember work sharing is such that
+	unsigned int nt = db.size();
+	for (unsigned int mr = 0; mr < nt; mr++) { //analyze the grain assignment of all ips
+		memRegion* thisregion = db.at(mr);
+		size_t eip_s = thisregion->eipid_start;
+		size_t eip_n = thisregion->eipid_n;
+
+		for (size_t e = 0; e < eip_n; e++) { //only the not periodic images of each element non-periodic images are material points to probe for grain identification
+			//which position to read from uniqueip2community given specific thread workload distribution?
+			unsigned int gid = uniqueip2community.at(eip_s + e); //linear read
+
+			thisregion->crystallite.GrainID.at(e) = gid;
+		}
+	}*/
+
 	toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "Processing::AddGrainIdentBuildPool" + to_string(thisincrement)));
+	mm = memsnapshot(); //tictoc.get_memoryconsumption();
+	tictoc.prof_elpsdtime_and_mem( "AddGrainBuildPool", APT_GRA, APT_IS_SEQ, mm, tic, toc, thisincrement);
+
+
+	//##MK::BEGIN OF DEBUG compute upper triangle disorientation angle matrix all-grains-against-all
+	tic = MPI_Wtime();
+
+	grains.disori_uppertriangle_matrix();
+
+	toc = MPI_Wtime();
+	mm = memsnapshot(); //tictoc.get_memoryconsumption();
+	tictoc.prof_elpsdtime_and_mem( "DisoriUpperTriangleMatrix", APT_UTL, APT_IS_SEQ, mm, tic, toc, thisincrement);
+	//##MK::END OF DEBUG
 
 
 	tic = MPI_Wtime();
+
 	for (unsigned int eid = 0; eid < uniqueip2community.size(); ++eid) {
 		eid_write_gid( eid, uniqueip2community.at(eid) );
 	}
-	toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "Processing::AddGrainIdentWriteAssgnGrainIDs" + to_string(thisincrement)));
 
+	toc = MPI_Wtime();
+	mm = memsnapshot(); //tictoc.get_memoryconsumption();
+	tictoc.prof_elpsdtime_and_mem( "AddGrainAssignGrainIDs", APT_GRA, APT_IS_SEQ, mm, tic, toc, thisincrement);
 
 	tic = MPI_Wtime();
 
 	write_identified_grains();
 
 	toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "Processing::AddGrainIdentReportMeta" + to_string(thisincrement)));
+	mm = tictoc.get_memoryconsumption(); //now highest memory low after successful grain construction
+	tictoc.prof_elpsdtime_and_mem( "AddGrainReportMeta", APT_UTL, APT_IS_SEQ, mm, tic, toc, thisincrement);
+
+
+	tic = MPI_Wtime();
 
 	if ( Settings::VisIPGridWithGrainID > 0 ) {
 		//##MK::BEGIN DEBUG
@@ -6008,9 +6711,20 @@ cout << "Total edge relations " << edges.size() << endl;
 		//##MK::END OF DEBUG
 	}
 
+	toc = MPI_Wtime();
+	mm = memsnapshot(); //tictoc.get_memoryconsumption();
+	tictoc.prof_elpsdtime_and_mem( "AddGrainReportVTK", APT_VIS_IO, APT_IS_SEQ, mm, tic, toc, thisincrement);
+
+	tic = MPI_Wtime();
+
 	if ( Settings::VisGrainQuaternionClouds > 0 ) {
-		write_grainid_and_quaternions();
+		//write_grainid_and_quaternions();
+		write_grainid_and_quaternions_mpiio();
 	}
+
+	toc = MPI_Wtime();
+	mm = memsnapshot(); //tictoc.get_memoryconsumption();
+	tictoc.prof_elpsdtime_and_mem( "AddGrainReportGrainIDsAndQuats", APT_MPI_IO, APT_IS_SEQ, mm, tic, toc, thisincrement);
 }
 
 
@@ -6018,40 +6732,158 @@ void specOutIncr::analyze_svar_grainbased_sdf()
 {
 	//for all successfully identified and voxelated grains check for each voxel inside its distance to the boundary
 	//via utilizing the SgnDistField2 and identify corresponding unique ip and state variable value
+	reporting( "Correlating state variable values signed distance based...", get_myrank(), 0, true );
+
 	double tic = MPI_Wtime();
 
-	vector<MPI_DisloSpatDistr_Double> globalres_edge;
-	vector<MPI_DisloSpatDistr_Double> globalres_dipo;
-	
-    //sanity checks
-	//##MK::currently only fcc supported!
-	size_t nslipsys = 12;
-	if ( db.back()->constitutive.rho_e_mult != nslipsys || db.back()->constitutive.rho_d_mult != nslipsys ) {
-		reporting("Attempting to analyze non-supported crystal structure!", myrank, 0, true);
-		return;
-	}
-	
-	unsigned int ngr = static_cast<unsigned int>(grains.polyxx.size());
-	for(unsigned int gr = 0; gr < ngr; ++gr) {
-		grGeomHdl* thisgrain = sdf.at(gr);
-		memRegion* thisregion = NULL;
-		size_t e = numeric_limits<size_t>::max();
+	vector<MPI_Tensor3x3SpatDistr_Double> globalres_stress;
+	vector<MPI_GrainOriSpatDistr_Double> globalres_ori;
 
-		if (thisgrain != NULL) { //exists
-			if (thisgrain->healthy == true) {
-				size_t nv = thisgrain->localgrid.nxyz;
-				unsigned int inside = thisgrain->cgid;
-				for(size_t v = 0; v < nv; ++v) {
-					if ( thisgrain->GrainIDField[v] == inside ) { //now we read from only 4 arrays all of which are linear and dont have to search for neighbors
+	#pragma omp parallel shared(globalres_stress,globalres_ori)
+	{
+		unsigned int nt = static_cast<unsigned int>(omp_get_num_threads());
+		unsigned int mt = static_cast<unsigned int>(omp_get_thread_num());
 
-						//read distance of voxel center to boundary from distance function
-						real_xyz dist = static_cast<real_xyz>(thisgrain->SgnDistField2[v]);
+		vector<MPI_Tensor3x3SpatDistr_Double> myres_stress;
+		vector<MPI_GrainOriSpatDistr_Double> myres_ori;
+
+		unsigned int ngr = static_cast<unsigned int>(grains.polyxx.size());
+		for(unsigned int gr = 0; gr < ngr; ++gr) {
+			if ( check_if_myworkpackage(gr, mt, nt) == false )
+				continue; //as somebody else will take care
+
+			grGeomHdl* thisgrain = sdf.at(gr);
+			memRegion* thisregion = NULL;
+			size_t e = numeric_limits<size_t>::max();
+
+			if (thisgrain != NULL) { //exists
+				if (thisgrain->healthy == true) {
+					size_t nv = thisgrain->localgrid.nxyz;
+					unsigned int inside = thisgrain->cgid;
+					for(size_t v = 0; v < nv; ++v) {
+						if ( thisgrain->GrainIDField[v] == inside ) { //now we read from only 4 arrays all of which are linear and dont have to search for neighbors
+
+							//read distance of voxel center to boundary from distance function
+							real_xyz dist = static_cast<real_xyz>(thisgrain->SgnDistField2[v]);
 						
-						//read corresponding reference to DAMASK_spectral integration point to get material point constitutive data
-						size_t uipid = static_cast<size_t>(thisgrain->UIPIDField[v]);
+							//read corresponding reference to DAMASK_spectral integration point to get material point constitutive data
+							size_t uipid = static_cast<size_t>(thisgrain->UIPIDField[v]);
 
-						//find memory region which stores the state variable values
-						for(unsigned int mr = 0; mr < db.size(); mr++) {
+							//find memory region which stores the state variable values
+							for(unsigned int mr = 0; mr < db.size(); mr++) { //##MK::make constant time access
+								//##MK::further improvement potential is seen here, as the searching for the correct memory location of heavy data sweeps through a vector of pointer, which individually may result in a pointer chase through memory until finding the pointer pointing to the correct heavy data container... instead utilize temporary map of
+								if( uipid < db.at(mr)->eipid_start || uipid >= db.at(mr)->eipid_end ) {
+									continue;
+								} //not continued, hence uipid \in [eipid_start,eipid_end)
+								thisregion = db.at(mr);
+								e = uipid - thisregion->eipid_start;
+								break;
+							}
+
+							//found!,  now pull state variable values
+
+							//collect results for I/O
+							unsigned int g = inside;
+							squat sq = thisregion->crystallite.q.at(e);
+							t3x3 tens = thisregion->crystallite.stresstensor.at(e);
+							if ( nt > SINGLETHREADED ) {
+								myres_stress.push_back( MPI_Tensor3x3SpatDistr_Double(g, dist, tens) );
+								myres_ori.push_back( MPI_GrainOriSpatDistr_Double(g, dist, sq.q0, sq.q1, sq.q2, sq.q3) );
+
+							}
+							else {
+								//utilize output buffer directly as there is not thread concurrency and we save memory
+								globalres_stress.push_back( MPI_Tensor3x3SpatDistr_Double(g, dist, tens) );
+								globalres_ori.push_back( MPI_GrainOriSpatDistr_Double(g, dist, sq.q0, sq.q1, sq.q2, sq.q3) );
+							}
+						}
+					} //check all voxel of thisgrain.localgrid whose center is inside the grain
+				}
+			}
+		} //next grain multiple thread work on different grains simultaneously
+
+		#pragma omp barrier
+
+		for (unsigned int mr = 0; mr < nt; mr++) {
+			if (mt == mr) { //applies to only one thread at a time, enforced sequentialization
+				if ( nt > SINGLETHREADED ) { //only necessary when running multithreaded
+					//cout << "Thread " << mt << " workload " << myworkload << "\n";
+					reporting("Computation of higher-order-based distances locally completed", get_myrank(), mt, true);
+
+					//copy threadlocal results critically and individually to global buffer, unsorted...
+					size_t ni = 0;
+					ni = myres_stress.size();
+					for(size_t i = 0; i < ni; ++i ) {
+						globalres_stress.push_back( myres_stress[i] );
+					}
+					ni = myres_ori.size();
+					for(size_t i = 0; i < ni; ++i ) {
+						globalres_ori.push_back( myres_ori[i] );
+					}
+				}
+				//else, we are working SINGLETHREADED then data are already in globalresults_* and myres_* remain empty
+				reporting("Computation of higher-order-based distances globally committed", get_myrank(), mt, true);
+			}
+			//mt != mr wait
+			#pragma omp barrier
+		}
+	} //end of parallel region
+
+	double toc = MPI_Wtime();
+	memsnapshot mm = tictoc.get_memoryconsumption();
+	tictoc.prof_elpsdtime_and_mem( "addDistanceSDFBasedCollect", APT_COR, APT_IS_PAR, mm, tic, toc, thisincrement);
+
+	//write_histograms2_binary( globalres_edge, globalres_dipo );
+	write_histograms2_binary_stress( globalres_stress );
+
+	write_histograms2_binary_ori( globalres_ori );
+
+	reporting("Computation of signed distance based correlation matpoint-boundary distance completed", get_myrank(), 0, true);
+}
+
+
+void specOutIncr::analyze_svar_grainbased_cgeom()
+{
+	//for all successfully identified and voxelated grains check for each voxel inside its distance to the boundary
+	//via utilizing the SgnDistField2 and identify corresponding unique ip and state variable value
+	reporting( "Correlating state variable values tessellation based...", get_myrank(), 0, true );
+
+	double tic = MPI_Wtime();
+
+	vector<MPI_Tensor3x3SpatDistr_Double> globalres_stress;
+	vector<MPI_GrainOriSpatDistr_Double> globalres_ori;
+
+	#pragma omp parallel shared(globalres_stress,globalres_ori)
+	{
+		unsigned int nt = static_cast<unsigned int>(omp_get_num_threads());
+		unsigned int mt = static_cast<unsigned int>(omp_get_thread_num());
+
+		vector<MPI_Tensor3x3SpatDistr_Double> myres_stress;
+		vector<MPI_GrainOriSpatDistr_Double> myres_ori;
+
+		unsigned int ngr = static_cast<unsigned int>(grains.polyxx.size());
+		for(unsigned int gr = 0; gr < ngr; ++gr) {
+			if ( check_if_myworkpackage(gr, mt, nt) == false )
+				continue; //as somebody else will take care
+
+			grGeomHdl* thisgrain = sdf.at(gr);
+			memRegion* thisregion = NULL;
+			size_t e = numeric_limits<size_t>::max();
+
+			if (thisgrain != NULL) { //exists
+				if (thisgrain->healthy == true) {
+
+					auto dist_it = thisgrain->contour.interior_d.begin();
+					auto dist_term = thisgrain->contour.interior_d.end();
+					auto uip_it = thisgrain->contour.interior_uip.begin();
+					auto uip_term = thisgrain->contour.interior_uip.end();
+
+					while ( dist_it != dist_term ) {
+
+						real_xyz dist = *dist_it;
+						size_t uipid = static_cast<size_t>(*uip_it);
+
+						for(unsigned int mr = 0; mr < db.size(); mr++) { //##MK::make constant time access
 							//##MK::further improvement potential is seen here, as the searching for the correct memory location of heavy data sweeps through a vector of pointer, which individually may result in a pointer chase through memory until finding the pointer pointing to the correct heavy data container... instead utilize temporary map of
 							if( uipid < db.at(mr)->eipid_start || uipid >= db.at(mr)->eipid_end ) {
 								continue;
@@ -6061,19 +6893,65 @@ void specOutIncr::analyze_svar_grainbased_sdf()
 							break;
 						}
 
-						//found!,  now pull state variable values
-						globalres_edge.push_back( MPI_DisloSpatDistr_Double(dist, thisregion->constitutive.rho_e, e*nslipsys) );
-						globalres_dipo.push_back( MPI_DisloSpatDistr_Double(dist, thisregion->constitutive.rho_d, e*nslipsys) );
-					}
-				} //check all voxel of thisgrain.localgrid whose center is inside the grain
+						//collect results for I/O
+						unsigned int g = thisgrain->cgid;
+						squat sq = thisregion->crystallite.q.at(e);
+						t3x3 tens = thisregion->crystallite.stresstensor.at(e);
+						if ( nt > SINGLETHREADED ) {
+							myres_stress.push_back( MPI_Tensor3x3SpatDistr_Double(g, dist, tens) );
+							myres_ori.push_back( MPI_GrainOriSpatDistr_Double(g, dist, sq.q0, sq.q1, sq.q2, sq.q3) );
+
+						}
+						else {
+							//utilize output buffer directly as there is not thread concurrency and we save memory
+							globalres_stress.push_back( MPI_Tensor3x3SpatDistr_Double(g, dist, tens) );
+							globalres_ori.push_back( MPI_GrainOriSpatDistr_Double(g, dist, sq.q0, sq.q1, sq.q2, sq.q3) );
+						}
+
+						dist_it++;
+						uip_it++;
+					} //check all interior nodes of inside the contour of thisgrain
+				}
 			}
 		} //next grain multiple thread work on different grains simultaneously
-	}
+
+		#pragma omp barrier
+
+		for (unsigned int mr = 0; mr < nt; mr++) {
+			if (mt == mr) { //applies to only one thread at a time, enforced sequentialization
+				if ( nt > SINGLETHREADED ) { //only necessary when running multithreaded
+					//cout << "Thread " << mt << " workload " << myworkload << "\n";
+					reporting("Computation of Voronoi tessellation-based distances locally completed", get_myrank(), mt, true);
+
+					//copy threadlocal results critically and individually to global buffer, unsorted...
+					size_t ni = 0;
+					ni = myres_stress.size();
+					for(size_t i = 0; i < ni; ++i ) {
+						globalres_stress.push_back( myres_stress[i] );
+					}
+					ni = myres_ori.size();
+					for( size_t i = 0; i < ni; ++i ) {
+						globalres_ori.push_back( myres_ori[i] );
+					}
+				}
+				//else, we are working SINGLETHREADED then data are already in globalresults_* and myres_* remain empty
+				reporting("Computation of higher-order-based distances globally committed", get_myrank(), mt, true);
+			}
+			//mt != mr wait
+			#pragma omp barrier
+		}
+	} //end of parallel region
 
 	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "Processing::AddStateVarSpatialDistr" + to_string(thisincrement)));
+	memsnapshot mm = tictoc.get_memoryconsumption();
+	tictoc.prof_elpsdtime_and_mem( "addDistanceVoroTessBasedCollect", APT_COR, APT_IS_PAR, mm, tic, toc, thisincrement);
 
-	write_histograms2_binary( globalres_edge, globalres_dipo );
+	//write_histograms2_binary( globalres_edge, globalres_dipo );
+	write_histograms2_binary_stress( globalres_stress );
+
+	write_histograms2_binary_ori( globalres_ori );
+
+	reporting("Computation of Voronoi tessellation contour based correlation matpoint-boundary distance completed", get_myrank(), 0, true);
 }
 
 
@@ -6120,7 +6998,7 @@ void specOutIncr::analyze_svar_grainbased_sdf()
 			//##MK::allocate checks
 			vector<MPI_DisloSpatDistr_Double>* here_e = NULL;
 			vector<MPI_DisloSpatDistr_Double>* here_d = NULL;
-			if ( nt > SINGLE_THREADED) {
+			if ( nt > SINGLETHREADED) {
 				here_e = new vector<MPI_DisloSpatDistr_Double>;
 				myres_edge.push_back( here_e );
 				here_d = new vector<MPI_DisloSpatDistr_Double>;
@@ -6156,12 +7034,12 @@ void specOutIncr::analyze_svar_grainbased_sdf()
 							}
 
 							//found!,  now pull state variable values
-							if ( nt > SINGLE_THREADED ) {
+							if ( nt > SINGLETHREADED ) {
 								myres_edge.back()->push_back( MPI_DisloSpatDistr_Double(dist, thisregion->constitutive.rho_e, e*nslipsys) );
 								myres_dipo.back()->push_back( MPI_DisloSpatDistr_Double(dist, thisregion->constitutive.rho_d, e*nslipsys) );
 								myres_cnt++;
 							}
-							else { //SINGLE_THREADED, in this case is guaranteed because of for loop
+							else { //SINGLETHREADED, in this case is guaranteed because of for loop
 								//utilize output buffer directly as there is not thread concurrency and we save memory
 								globalres_edge.push_back( MPI_DisloSpatDistr_Double(dist, thisregion->constitutive.rho_e, e*nslipsys) );
 								globalres_dipo.push_back( MPI_DisloSpatDistr_Double(dist, thisregion->constitutive.rho_d, e*nslipsys) );
@@ -6187,7 +7065,7 @@ void specOutIncr::analyze_svar_grainbased_sdf()
 		
 		#pragma omp master
 		{
-			if ( nt > SINGLE_THREADED ) {
+			if ( nt > SINGLETHREADED ) {
 				globalres_edge.reserve(required_cnt);
 				globalres_dipo.reserve(required_cnt);
 				for(size_t i = 0; i < required_cnt; ++i) {
@@ -6210,7 +7088,7 @@ void specOutIncr::analyze_svar_grainbased_sdf()
 		
 		for (unsigned int mr = 0; mr < nt; mr++) {
 			if (mt == mr) { //applies to only one thread at a time, enforced sequentialization
-				if ( nt > SINGLE_THREADED ) { //only necessary when running multithreaded
+				if ( nt > SINGLETHREADED ) { //only necessary when running multithreaded
 					reporting("Computation of higher-order-based distances locally completed", get_myrank(), mt, true);
 
 					//copy threadlocal results critically and individually to global buffer, unsorted...
@@ -6225,7 +7103,7 @@ void specOutIncr::analyze_svar_grainbased_sdf()
 						complaining("Computation of higher-order-based distances resulted in dissimilar long arrays", get_myrank(), mt);
 					}
 				}
-				//else, we are working SINGLE_THREADED then data are already in globalresults_* and myres_* remain empty
+				//else, we are working SINGLETHREADED then data are already in globalresults_* and myres_* remain empty
 				reporting("Computation of higher-order-based distances globally committed", get_myrank(), mt, true);
 			}
 			//mt != mr wait
@@ -6236,7 +7114,7 @@ void specOutIncr::analyze_svar_grainbased_sdf()
 //		//aggregation of thread-local data is writing to shared variable, i.e. critical
 //		#pragma omp critical
 //		{
-//			if ( nt != SINGLE_THREADED ) { //only necessary when running multithreaded
+//			if ( nt != SINGLETHREADED ) { //only necessary when running multithreaded
 //				reporting("Computation of higher-order-based distances locally completed", get_myrank(), mt, true);
 //
 //				//copy threadlocal results critically and individually to global buffer, unsorted...
@@ -6263,7 +7141,7 @@ void specOutIncr::analyze_svar_grainbased_sdf()
 	tictoc.push_back(plog(tic, toc, "Processing::AddStateVarSpatialDistr" + to_string(thisincrement)));
 
 	//write_histograms2_ascii(globalresults_d, globalresults_edge, globalresults_dipo);
-	write_histograms2_binary( globalres_edge, globalres_dipo );
+	//write_histograms2_binary( globalres_edge, globalres_dipo );
 
 	//write_searchefficiency(globalresults_ncandidates);
 }
@@ -6335,7 +7213,7 @@ bool specOutIncr::init_threadlocalmemory_sdf()
 			#pragma omp critical
 			{
 				//writing to globally shared array, ''MK::better in the future build threadlocal array of grgeomHdl objects and pass specOutIncrHdl only references to these
-cout << "Thread " << mt << " processes grain " << gr << endl;
+//cout << "Thread " << mt << " processes grain " << gr << "\n";
 				sdf.at(gr) = geomhdl;
 				
 				/*sdf.push_back(NULL);
@@ -6355,7 +7233,8 @@ cout << "Thread " << mt << " processes grain " << gr << endl;
 	}
 
 	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "Processing::InitThreadLocalGrainHdl" + to_string(thisincrement)));
+
+	//tictoc.push_back(plog(tic, toc, "Processing::InitThreadLocalGrainHdl" + to_string(thisincrement)));
 
 	if (allhealthy == false) {
 		string mess = "Unable to allocate memory for grain geometry reconstruction";
@@ -6379,7 +7258,7 @@ void specOutIncr::compute_perips_and_uips()
 		unsigned int mt = static_cast<unsigned int>(omp_get_thread_num());
 		aabb3d mbox = aabb3d(); //MK::local to the thread not a grain, used to aggregate threadlocal result
 
-cout << mbox << endl;
+//cout << mbox << "\n";
 		unsigned int ngr = static_cast<unsigned int>(grains.polyxx.size());
 		for(unsigned int gr = 0; gr < ngr; gr++) {
 			if ( check_if_myworkpackage(gr, mt, nt) == false )
@@ -6387,21 +7266,23 @@ cout << mbox << endl;
 
 			//get first all uniqueips that build the grain
 			vector<unsigned int>* passthese = grains.ipsupport.at(gr);
-			for(size_t i = 0; i < passthese->size(); ++i ) {
+			grGeomHdl* storehere = sdf.at(gr);
+			for( auto uipname = passthese->begin(); uipname != passthese->end(); uipname++ ) {
+			//for( size_t i = 0; i < passthese->size(); ++i ) {
 				//get spatial data of uniqueip uip and assign name of the uip to mark m1
-				unsigned int uipname = passthese->at(i);
-				p3d p = eid2p3d(static_cast<size_t>(uipname)); //##MK::DEBUG before mark = loop iterator
-				sdf.at(gr)->ips.push_back( p3dm1(p.x, p.y, p.z, uipname) );
+				//unsigned int uipname = passthese->at(i);
+				p3d p = eid2p3d(static_cast<size_t>(*uipname)); //##MK::DEBUG before mark = loop iterator
+				storehere->ips.push_back( p3dm1(p.x, p.y, p.z, *uipname) );
 			}
 
 			//get periodic images of these uips in RVE27
-			sdf.at(gr)->compute_all_replica();
+			storehere->compute_all_replica();
 
 			//threadlocal aggregation of bounding boxes
 			mbox.potentially_expand( sdf.at(gr)->localbox );
-//cout << mbox << endl;
+//cout << mbox << "\n";
 
-		} //me done with all grains
+		} //process team done with all grains
 
 		//##MK::strictly speaking there should be no barrier necessary as updating to globalbox is in critical region
 
@@ -6409,17 +7290,19 @@ cout << mbox << endl;
 		#pragma omp critical
 		{
 			globalbox.potentially_expand(mbox);
-cout << "Thread " << mt << " local bounding box " << mbox << endl;
+cout << "Thread " << mt << " local bounding box " << mbox << "\n";
 		}
 	} //end of parallel region
 
 	//finally get dimensions of joint AABB
+	globalbox.add_guardzone( EPSILON );
 	globalbox.scale();
 
 	pp3rve27.owin = globalbox;
 
 	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "Processing::MeshingComputePerIPs" + to_string(thisincrement)));
+	memsnapshot mm = memsnapshot(); //tictoc.get_memoryconsumption();
+	tictoc.prof_elpsdtime_and_mem( "addGrainsPeriodicImages", APT_GRA, APT_IS_PAR, mm, tic, toc, thisincrement);
 }
 
 
@@ -6433,17 +7316,16 @@ void specOutIncr::init_global_bvh_p3dm1()
 
 	double tic = MPI_Wtime();
 
-	pp3rve27.build_bvh_p3dm1(); //#MK::was this->
-
+	pp3rve27.build_bvh_p3dm1();
+	
 	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "Processing::BVHP3DM1" + to_string(thisincrement)));
+	memsnapshot mm = memsnapshot(); //tictoc.get_memoryconsumption();
+	tictoc.prof_elpsdtime_and_mem( "addGrainsBVHXYZRVE27", APT_GRA, APT_IS_PAR, mm, tic, toc, thisincrement);
 }
 
 
 void specOutIncr::build_grainlocal_sbvh()
 {
-	//EXECUTED FROM WITHIN PARALLEL REGION
-
 	//knowing now the final axis-aligned extent of the ip cloud globally and for each grain
 	//we now bin into a sparsely stored bounded volume hierarchy the ips of each grain to prepare
 	//for performing the thread/grain-local DBScan to identify the periodic images/replicates of each grain
@@ -6461,16 +7343,14 @@ void specOutIncr::build_grainlocal_sbvh()
 				continue;
 
 			if (sdf.at(gr) != NULL) {
-
 				sdf.at(gr)->build_sparse_bvh();
-
-
 			}
 		} //me done with all grains
 	} //end of parallel region
 
 	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "Processing::MeshingBuildLocalSparseBVHs" + to_string(thisincrement)));
+	memsnapshot mm = memsnapshot(); //tictoc.get_memoryconsumption();
+	tictoc.prof_elpsdtime_and_mem( "addGrainsBuildLocalSparseBVHs", APT_GRA, APT_IS_PAR, mm, tic, toc, thisincrement);
 }
 
 
@@ -6490,20 +7370,24 @@ void specOutIncr::discern_replica_via_dbscan()
 			if ( check_if_myworkpackage(gr, mt, nt) == false )
 				continue;
 			if (sdf.at(gr) != NULL) {
-				sdf.at(gr)->dbscan_ips2grreplicates( Settings::DBScanKernelRadius );
+				sdf.at(gr)->dbscan_ips2grreplicates2( Settings::DBScanKernelRadius );
 			}
 		} //me done with all grains
 	} //end of parallel region
 
 	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "Processing::MeshingDBScanIdentReplicates" + to_string(thisincrement)));
+	memsnapshot mm = tictoc.get_memoryconsumption(); //high memory load because fragments in memory and RVE27
+	tictoc.prof_elpsdtime_and_mem( "addGrainsDBScanFuseFragments", APT_GRA, APT_IS_PAR, mm, tic, toc, thisincrement);
 }
 
 
 void specOutIncr::pick_one_replica_from_dbscan()
 {
 	//knowing now the cluster pick one representative of the grain closest to center of uip point cloud center
-	double tic = MPI_Wtime();
+	double tic = 0.0;
+	double toc = 0.0;
+
+	tic = MPI_Wtime();
 
 	#pragma omp parallel
 	{
@@ -6527,11 +7411,18 @@ void specOutIncr::pick_one_replica_from_dbscan()
 		} //me done with all grains
 	} //end of parallel region
 
-	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "Processing::MeshingDBScanPickRepresentative" + to_string(thisincrement)));
+	toc = MPI_Wtime();
+	memsnapshot mm = memsnapshot(); //tictoc.get_memoryconsumption();
+	tictoc.prof_elpsdtime_and_mem( "addGrainsPickRepresentative", APT_GRA, APT_IS_PAR, mm, tic, toc, thisincrement);
 
 	//##MK::make optional
+	tic = MPI_Wtime();
+
 	write_dbscan_result();
+
+	toc = MPI_Wtime();
+	mm = memsnapshot(); //tictoc.get_memoryconsumption();
+	tictoc.prof_elpsdtime_and_mem( "addGrainsReportDBScan", APT_UTL, APT_IS_SEQ, mm, tic, toc, thisincrement);
 }
 
 
@@ -6574,7 +7465,8 @@ void specOutIncr::write_dbscan_result()
 	}
 
 	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "IO::WriteDBScanResults" + to_string(thisincrement)));
+
+	//tictoc.push_back(plog(tic, toc, "IO::WriteDBScanResults" + to_string(thisincrement)));
 }
 
 
@@ -6599,11 +7491,11 @@ void specOutIncr::init_global_voxelgrid_csys()
 	//grainfences initially are build from bounding boxes about ip locations now we have to distinguish center of gravity of voxel and wall of cubic voxels...
 	real_xyz guard_edgelen = static_cast<real_xyz>(Settings::PVTessGuardZoneEdgeLen)*Settings::PVTessCubeVoxelEdgeLen;
 
-cout << "Guardlen " << guard_edgelen << endl;
+cout << "Guardlen " << guard_edgelen << "\n";
 
 	pp3rve27.owin.scale(); //#MK::was this->
 	aabb3d rve27 = pp3rve27.owin;
-cout << "RVE27 " << rve27 << endl;
+cout << "RVE27 " << rve27 << "\n";
 
 	aabb3d frame_grboxes_withguard = aabb3d();
 
@@ -6611,21 +7503,21 @@ cout << "RVE27 " << rve27 << endl;
 		if ( sdf.at(gr) != NULL ) {
 
 			aabb3d old_grbox = sdf.at(gr)->grainfence;
-	cout << "OldGrBox " << endl << old_grbox << endl;
+//cout << "OldGrBox " << "\n" << old_grbox << "\n";
 
 			sdf.at(gr)->grainfence.add_guardzone(guard_edgelen);
 
 			aabb3d new_grbox = sdf.at(gr)->grainfence;
-	cout << "NewGrBox " << endl << new_grbox << endl;
+//cout << "NewGrBox " << "\n" << new_grbox << "\n";
 
 			if ( new_grbox.lurking_out_of( rve27 ) == true ) {
-	cout << "Grain " << gr << " protrudes out of rve27" << endl;
+				cerr << "Grain " << gr << " protrudes out of rve27" << "\n";
 				sdf.at(gr)->vxlinit_success = false;
 			}
 			else { //inside rve27 but updateframe_grboxes_withguard
 				frame_grboxes_withguard.potentially_expand( new_grbox );
 				sdf.at(gr)->vxlinit_success = true;
-	cout << "Updating frame_grboxes_withguard... with grain " << gr << endl << frame_grboxes_withguard << endl;
+//cout << "Updating frame_grboxes_withguard... with grain " << gr << "\n" << frame_grboxes_withguard << "\n";
 			}
 		}
 	}
@@ -6634,7 +7526,7 @@ cout << "RVE27 " << rve27 << endl;
 	//blowup >= 1.0 where the numerical case of exactly 1.0 is very unlikely
 	frame_grboxes_withguard.scale();
 
-cout << "Frame_grboxes_withguard " << endl << frame_grboxes_withguard << endl;
+//cout << "Frame_grboxes_withguard " << "\n" << frame_grboxes_withguard << "\n";
 
 	vxlgrd tmp = vxlgrd();
 	tmp.dcell = Settings::PVTessCubeVoxelEdgeLen;
@@ -6645,19 +7537,19 @@ cout << "Frame_grboxes_withguard " << endl << frame_grboxes_withguard << endl;
 			(static_cast<real_xyz>(tmp.nx) * tmp.dcell) / frame_grboxes_withguard.xsz,
 			(static_cast<real_xyz>(tmp.ny) * tmp.dcell) / frame_grboxes_withguard.ysz,
 			(static_cast<real_xyz>(tmp.nz) * tmp.dcell) / frame_grboxes_withguard.zsz );
-cout << "Blowup " << blowup << endl;
+//cout << "Blowup " << blowup << "\n";
 
 //	p3d debug_old = frame_grboxes_withguard.center(); //##MK::DEBUG
 
 	frame_grboxes_withguard.blowup_xyz( blowup );
 
-cout << "Blown up frame_grboxes_withguard " << endl << frame_grboxes_withguard << endl;
+//cout << "Blown up frame_grboxes_withguard " << "\n" << frame_grboxes_withguard << "\n";
 
 /*
 p3d debug_new = frame_grboxes_withguard.center(); //##MK::DEBUG
 cout << setprecision(32);
-cout << "Frame_grboxes_withguard old center " << debug_old << endl;
-cout << "Frame_grboxes_withguard new center " << debug_new << endl;
+cout << "Frame_grboxes_withguard old center " << debug_old << "\n";
+cout << "Frame_grboxes_withguard new center " << debug_new << "\n";
 cout << setprecision(18);
 */
 
@@ -6676,10 +7568,11 @@ cout << setprecision(18);
 
 	thegrid = tmp;
 
-cout << "Final global voxelgrid is " << thegrid << endl;
+cout << "Final global voxelgrid is " << thegrid << "\n";
 
 	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "Processing::MeshingInitGlobalVoxelGrid" + to_string(thisincrement)));
+	memsnapshot mm = memsnapshot(); //tictoc.get_memoryconsumption();
+	tictoc.prof_elpsdtime_and_mem( "addGrainsInitGlobalVoxelGrid", APT_GRA, APT_IS_SEQ, mm, tic, toc, thisincrement);
 }
 
 
@@ -6705,7 +7598,50 @@ void specOutIncr::init_grainlocal_voxelgrids_csys()
 	} //next grain
 
 	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "Processing::MeshingInitLocalVoxelGrids" + to_string(thisincrement)));
+	memsnapshot mm = tictoc.get_memoryconsumption(); //memory is now high because all local bounding boxes allocated
+	tictoc.prof_elpsdtime_and_mem( "addGrainsLocalVoxelGrids", APT_GRA, APT_IS_PAR, mm, tic, toc, thisincrement);
+}
+
+
+void specOutIncr::extract_grainlocal_cuboidalregion_from_rve27()
+{
+	double tic = MPI_Wtime();
+
+	#pragma omp parallel
+	{
+		unsigned int nt = static_cast<unsigned int>(omp_get_num_threads());
+		unsigned int mt = static_cast<unsigned int>(omp_get_thread_num());
+
+		unsigned int ngr = static_cast<unsigned int>(grains.polyxx.size());
+		for(unsigned int gr = 0; gr < ngr; gr++) {
+			if ( check_if_myworkpackage(gr, mt, nt) == false )
+				continue;
+
+			if (sdf.at(gr) != NULL) {
+				if ( sdf.at(gr)->healthy == true ) {
+					sdf.at(gr)->build_contour_from_vorotess();
+				}
+			}
+		} //next grain
+
+		//wait for all threads to build their contours
+		#pragma omp barrier
+		//##clear sbvh
+		/*for(unsigned int gr = 0; gr < ngr; gr++) {
+			if ( check_if_myworkpackage(gr, mt, nt) == false )
+				continue;
+
+			if (sdf.at(gr) != NULL) {
+				if ( sdf.at(gr)->healthy == true ) {
+					sdf.at(gr)->destroy_sbvh();
+				}
+			}
+		}*/ //next grain
+	}
+
+	double toc = MPI_Wtime();
+	memsnapshot mm = memsnapshot(); //tictoc.get_memoryconsumption(); //memory is now high because all local bounding boxes allocated
+	tictoc.prof_elpsdtime_and_mem( "addTessExtractLocalMatpointsRVE27s", APT_TES, APT_IS_PAR, mm, tic, toc, thisincrement);
 }
 
 
@@ -6731,7 +7667,7 @@ void specOutIncr::write_grainlocal_vxlgrids()
 		csvlog << v->origin_cntum.x << ";" << v->origin_cntum.y << ";" << v->origin_cntum.z << ";";
 		csvlog << v->box.xmi << ";" << v->box.xmx << ";" << v->box.ymi << ";" << v->box.ymx << ";" << v->box.zmi << ";" << v->box.zmx << "\n";
 
-		double _fgeo = static_cast<double>(3.0) / (static_cast<double>(4.0) * static_cast<double>(PI));
+		double _fgeo = static_cast<double>(3.0) / (static_cast<double>(4.0) * static_cast<double>(MYPI));
 		double _onethird = static_cast<double>(1.0) / static_cast<double>(3.0);
 
 		for (size_t gr = 0; gr < sdf.size(); ++gr) {
@@ -6758,7 +7694,8 @@ void specOutIncr::write_grainlocal_vxlgrids()
 	}
 
 	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "IO::WriteGrainLocalVoxelGrids" + to_string(thisincrement)));
+
+	//tictoc.push_back(plog(tic, toc, "IO::WriteGrainLocalVoxelGrids" + to_string(thisincrement)));
 }
 
 
@@ -6778,16 +7715,77 @@ void specOutIncr::fill_global_bvh_p3dm1()
 
 	double tic = MPI_Wtime();
 
-	//##MK::do not run in parallel to avoid write concurrency, tasks seems at first glance of inherent sequential nature/requirement ?
+/*
+	#pragma omp parallel
+	{
+		unsigned int nt = static_cast<unsigned int>(omp_get_num_threads());
+		unsigned int mt = static_cast<unsigned int>(omp_get_thread_num());
+		unsigned int ngr = static_cast<unsigned int>(grains.polyxx.size());
 
+		for(unsigned int gr = 0; gr < ngr; gr++) {
+			if ( check_if_myworkpackage(gr, mt, nt) == false )
+				continue;
+
+			vector<unsigned int> buffer_target;
+			vector<p3dm2> buffer_points;
+
+			grGeomHdl* thisone = sdf.at(gr);
+			if ( thisone != NULL ) {
+				if ( thisone->healthy == true ) {
+
+					map<unsigned int, sbvhrange>::iterator it = thisone->sbvh_locator.begin();
+					map<unsigned int, sbvhrange>::iterator term = thisone->sbvh_locator.end();
+
+					while( it != term ) {
+						//MK::observe that all elements on sdf.at(gr)->sbvh on the index interval [idxs,idxe)
+						//go to the same bin and were assigned the same grainID ...
+						unsigned int binID = it->first;
+//cout << binID << " ";
+						size_t idxs = it->second.startidx;
+						size_t idxe = it->second.pastendidx;
+
+						vector<p3dm2>* writehere = pp3rve27.pp3_points.at(binID);
+						for(size_t i = idxs; i < idxe; ++i) {
+							buffer_target.push_back(binID);
+							buffer_points.push_back( p3dm2(thisone->sbvh_points[i], thisone->sbvh_uipref[i], thisone->sbvh_isrepresentative[i]) );
+						}
+						it++; //enter next binID
+					} //all sparse data transferred
+				}
+			}
+
+			#pragma omp critical
+			{
+				size_t i = 0;
+				for( auto binit = buffer_target.begin(); binit != buffer_target.end(); binit++ ) {
+					pp3rve27.pp3_points.at(*binit)->push_back( buffer_points[i] );
+					i++;
+				}
+			}
+
+			buffer_target = vector<unsigned int>();
+			buffer_points = vector<p3dm2>();
+
+			thisone->sbvh_points = vector<p3d>();
+			thisone->sbvh_uipref = vector<unsigned int>();
+			thisone->sbvh_isrepresentative = vector<unsigned char>();
+		}
+//cout << "\n" << "\n";
+	} //next grain
+*/
+
+	//##MK::do not run in parallel to avoid write concurrency, tasks seems at first glance of inherent sequential nature/requirement ?
 	unsigned int ngr = static_cast<unsigned int>(grains.polyxx.size());
 	for(unsigned int gr = 0; gr < ngr; gr++) {
 		//unsigned int grainID = sdf.at(gr)->cgid;
 
-//cout << "Grain " << gr << " filling in ips" << endl;
-		map<unsigned int, sbvhrange>::iterator it = sdf.at(gr)->sbvh_locator.begin();
+//cout << "Grain " << gr << " filling in ips" << "\n";
+		grGeomHdl* thisone = sdf.at(gr);
+		map<unsigned int, sbvhrange>::iterator it = thisone->sbvh_locator.begin();
+		map<unsigned int, sbvhrange>::iterator term = thisone->sbvh_locator.end();
+
 		//vector<p3d>* readhere = sdf.at(gr);
-		while( it != sdf.at(gr)->sbvh_locator.end() ) {
+		while( it != term ) {
 
 			//MK::observe that all elements on sdf.at(gr)->sbvh on the index interval [idxs,idxe)
 			//go to the same bin and were assigned the same grainID ...
@@ -6799,7 +7797,7 @@ void specOutIncr::fill_global_bvh_p3dm1()
 			vector<p3dm2>* writehere = pp3rve27.pp3_points.at(binID);
 
 			for(size_t i = idxs; i < idxe; ++i) {
-				writehere->push_back( p3dm2(sdf.at(gr)->sbvh_points[i], sdf.at(gr)->sbvh_uipref[i], sdf.at(gr)->sbvh_isrepresentative[i]) );
+				writehere->push_back( p3dm2( thisone->sbvh_points[i], thisone->sbvh_uipref[i], thisone->sbvh_isrepresentative[i]) );
 			}
 
 			it++; //enter next binID
@@ -6807,14 +7805,18 @@ void specOutIncr::fill_global_bvh_p3dm1()
 
 
 		//##MK::swap free the sbvh_buckets as they are no longer required
-		vector<p3d> dummy1;
+		/*vector<p3d> dummy1;
 		vector<unsigned int> dummy2;
 		vector<unsigned char> dummy3;
 		sdf.at(gr)->sbvh_points.swap( dummy1 );
 		sdf.at(gr)->sbvh_uipref.swap( dummy2 );
-		sdf.at(gr)->sbvh_isrepresentative.swap( dummy3 );
+		sdf.at(gr)->sbvh_isrepresentative.swap( dummy3 );*/
 
-//cout << endl << endl;
+		thisone->sbvh_points = vector<p3d>();
+		thisone->sbvh_uipref = vector<unsigned int>();
+		thisone->sbvh_isrepresentative = vector<unsigned char>();
+
+//cout << "\n" << "\n";
 	} //next grain
 
 	//##MK::BEGIN DEBUG
@@ -6825,9 +7827,9 @@ void specOutIncr::fill_global_bvh_p3dm1()
 	}
 	//##MK::END DEBUG
 
-
 	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "Processing::MeshingFillGlobalBVH" + to_string(thisincrement)));
+	memsnapshot mm = memsnapshot(); //tictoc.get_memoryconsumption(); //memory is now high because all local bounding boxes allocated
+	tictoc.prof_elpsdtime_and_mem( "addSgnDistFillGlobalBVH", APT_SDF, APT_IS_SEQ, mm, tic, toc, thisincrement);
 }
 
 
@@ -6855,7 +7857,8 @@ void specOutIncr::voxelize_this_replica()
 
 
 	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "Processing::MeshingVoxelizingRepresentative" + to_string(thisincrement)));
+	memsnapshot mm = memsnapshot(); //tictoc.get_memoryconsumption(); //memory is now high because all local bounding boxes allocated
+	tictoc.prof_elpsdtime_and_mem( "addSgnDistVoxelizeRepresentative", APT_SDF, APT_IS_PAR, mm, tic, toc, thisincrement);
 }
 
 
@@ -6882,14 +7885,18 @@ void specOutIncr::approximate_signed_distance_function()
 	} //end of parallel region
 
 	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "Processing::SgnDistFunctionInit" + to_string(thisincrement)));
+	memsnapshot mm = memsnapshot(); //tictoc.get_memoryconsumption(); //memory is now high because all local bounding boxes allocated
+	tictoc.prof_elpsdtime_and_mem( "addSgnDistFunctionInit", APT_SDF, APT_IS_PAR, mm, tic, toc, thisincrement);
 }
 
 
 void specOutIncr::spread_signed_distance_function()
 {
 	//having now the cubic voxel grid representation of the grain we can (finally) compute the signed-distance function
-	double tic = MPI_Wtime();
+	double tic = 0.0;
+	double toc = 0.0;
+
+	tic = MPI_Wtime();
 
 	#pragma omp parallel
 	{
@@ -6908,22 +7915,34 @@ void specOutIncr::spread_signed_distance_function()
 		} //me done with all grains
 	} //end of parallel region
 
-	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "Processing::SgnDistFunctionFSM" + to_string(thisincrement)));
+	toc = MPI_Wtime();
+	memsnapshot mm = memsnapshot();
+	tictoc.prof_elpsdtime_and_mem( "addSgnDistFunctionSpreadFSM", APT_SDF, APT_IS_PAR, mm, tic, toc, thisincrement);
+
+	tic = MPI_Wtime();
 
 	//##MK::make optional
 	write_grainlocal_vxlgrids();
+
+	toc = MPI_Wtime();
+	mm = tictoc.get_memoryconsumption(); //memory is now high because all local bounding boxes allocated
+	tictoc.prof_elpsdtime_and_mem( "addSgnDistReportBoxes", APT_UTL, APT_IS_SEQ, mm, tic, toc, thisincrement);
 }
 
 
-void specOutIncr::analyze_mesh_grains()
+void specOutIncr::analyze_boxup_grains()
 {
-	if ( init_threadlocalmemory_sdf() != true )
+	//go from the distorted rve27 to a cuboidal box bounding for each grain the supporting matpoints and the immediate environment
+	if ( init_threadlocalmemory_sdf() != true ) {
+		cerr << "Threadlocal memory SDF is inconsistent!" << "\n";
 		return;
-
+	}
+	
 	compute_perips_and_uips();
 
 	init_global_bvh_p3dm1();
+
+	//MK::if still points are missing check how many periodic images per grain!
 
 	build_grainlocal_sbvh();
 
@@ -6935,6 +7954,14 @@ void specOutIncr::analyze_mesh_grains()
 
 	//MK::from now on we must check if the grain periodic image recon was successful, i.e. if sdf.at(i)->healthy == true
 
+	reporting( "Boxing up grains completed", get_myrank(), 0, true );
+}
+
+
+void specOutIncr::analyze_build_grains()
+{
+	//MK::from now on we must check if the grain periodic image recon was successful, i.e. if sdf.at(i)->healthy == true
+
 	init_global_voxelgrid_csys();
 
 	init_grainlocal_voxelgrids_csys();
@@ -6942,18 +7969,30 @@ void specOutIncr::analyze_mesh_grains()
 	//MK::even if the dbscan entirely fails for a grain, at least the periodic images of all uips to each grain were computed in
 	//compute_perips_and_uips to support the PV voxelization
 
-	fill_global_bvh_p3dm1();
+	if ( Settings::StateVarThrshldModel == E_VORONOITESSELLATION ) {
 
-	//MK::from now on we may no longer require the grain-local sbvh's
+		extract_grainlocal_cuboidalregion_from_rve27();
 
-	voxelize_this_replica();
+	}
 
-	approximate_signed_distance_function();
+	if ( Settings::StateVarThrshldModel == E_SIGNEDDISTANCEFUNCTION ) {
 
-	spread_signed_distance_function();
+		fill_global_bvh_p3dm1();
 
-	//##MK::now one would be ready to utilize the signed distance function, where it is defined to get
-	//the project normal distance of a uip in the deformed configuration to the grain boundary
+		//MK::from now on we may are not allowed any longer to access to the grain-local sbvh's
+		//MK::but we cannot now just pick all ions locally from a region of pp3rve27 to tessellate because it contains
+
+		voxelize_this_replica();
+
+		approximate_signed_distance_function();
+
+		spread_signed_distance_function();
+
+		//##MK::now one would be ready to utilize the signed distance function, where it is defined to get
+		//the project normal distance of a uip in the deformed configuration to the grain boundary
+	}
+
+	reporting( "Building grains completed", get_myrank(), 0, true );
 }
 
 
@@ -6964,7 +8003,7 @@ void specOutIncr::analyze_reconstruct_grains()
 
 	//build field carrying the successively build assignment of grain ids to ips
 	size_t n = head.NXYZ; //0;
-cout << "Reconstructing grains with n " << n << endl;
+cout << "Reconstructing grains with n " << n << "\n";
 
 	vector<unsigned int> pid2gid_tmp;
 	for (size_t i = 0; i < n; ++i)
@@ -7011,7 +8050,7 @@ cout << "Reconstructing grains with n " << n << endl;
 	//splitting up the grain in two fragments at ip 1,2, 3 and ip 10, respectively.
 	//to remedy we can rerun the labeling algorithm
 
-cout << "Initial labeling done" << endl;
+cout << "Initial labeling done" << "\n";
 	double toc = MPI_Wtime();
 	tictoc.push_back(plog(tic, toc, "Processing::AddReconstructGrainsRun1" + to_string(thisincrement)));
 
@@ -7048,7 +8087,7 @@ cout << "Initial labeling done" << endl;
 //		}
 //	}
 
-//cout << "Final labeling done" << endl;
+//cout << "Final labeling done" << "\n";
 
 //	toc = MPI_Wtime();
 //	tictoc.push_back(plog(tic, toc, "Processing::AddReconstructGrainsRun2" + to_string(thisincrement)));
@@ -7057,7 +8096,7 @@ cout << "Initial labeling done" << endl;
 	for (size_t i = 0; i < n; ++i) {
 		if ( pid2gid_tmp[i] != numeric_limits<unsigned int>::max() )
 			continue;
-cout << "Integration point " << i << " has no grain assigned!" << endl;
+cout << "Integration point " << i << " has no grain assigned!" << "\n";
 	}
 	//##MK::END OF DEBUG
 
@@ -7097,14 +8136,14 @@ inline void specOutIncr::eid_write_gid( const size_t eid, const unsigned int gid
 	for (unsigned int mr = 0; mr < nt; ++mr) {
 		if ( eid >= db.at(mr)->eipid_start && eid < db.at(mr)->eipid_end ) {
 			size_t pos = eid - db.at(mr)->eipid_start;
-			db.at(mr)->crystallite.GrainID[pos] = gid;
+			db.at(mr)->crystallite.GrainID[pos] = gid; //Cstyle-named grains
 			return;
 		}
 	}
 }
 
 
-inline quat specOutIncr::eid2quaternion( const size_t eid )
+inline squat specOutIncr::eid2quaternion( const size_t eid )
 {
 	//##MK::very likely this logic is more performant
 	unsigned int nt = db.size();
@@ -7113,11 +8152,11 @@ inline quat specOutIncr::eid2quaternion( const size_t eid )
 			continue;
 		//implicit else
 		if ( eid >= db.at(mr)->eipid_start && eid < db.at(mr)->eipid_end ) {
-//##MK::DEBUGsize_t localpos = eid - db.at(t)->eipid_start; quat res = db.at(t)->crystallite.q[eid - db.at(t)->eipid_start]; cout << localpos << "\t\t" << res << endl; return res;
+//##MK::DEBUGsize_t localpos = eid - db.at(t)->eipid_start; quat res = db.at(t)->crystallite.q[eid - db.at(t)->eipid_start]; cout << localpos << "\t\t" << res << "\n"; return res;
 			return db.at(mr)->crystallite.q[eid - db.at(mr)->eipid_start];
 		}
 	}
-	return quat();//if nothing return identity quaternion as neutral element
+	return squat();//if nothing return identity quaternion as neutral element
 }
 
 
@@ -7163,17 +8202,17 @@ dist specOutIncr::closestBoundaryInKernelIfAny( const size_t central_eid, vector
 {
 	//MK::assumes that candidates is sorted in ascending order!
 	//for ( vector<dist>::iterator it = candidates.begin(); it != candidates.end(); ++it ) {*it->
-	//for (unsigned int c = 0; c < candidates.size(); ++c) { cout << candidates[c].d << ","; } cout << endl; return dist();
+	//for (unsigned int c = 0; c < candidates.size(); ++c) { cout << candidates[c].d << ","; } cout << "\n"; return dist();
 
 	//get orientation of central point
-	quat central_ori = eid2quaternion( central_eid );
-	real_ori qcentral[4] = { central_ori.q0, central_ori.q1, central_ori.q2, central_ori.q3 };
+	squat qcentral = eid2quaternion( central_eid );
+//cout << "eid/cand.size()/qcentral = " << central_eid << "\t\t" << candidates.size() << "\t\t" << qcentral.q0 << ";" << qcentral.q1 << ";" << qcentral.q2 << ";" << qcentral.q3 << "\n";
 
-
+/*
 	//##MK::DEBUG
 	if ( candidates.size() > 0 ) {
 		if ( central_eid != candidates.at(0).nbor_eipid) { //##MK::unlikely
-cout << "ERROR::Inconsistent ID\t\t" << central_eid << "\t\t" << candidates.at(0).nbor_eipid << endl;
+cout << "ERROR::Inconsistent ID\t\t" << central_eid << "\t\t" << candidates.at(0).nbor_eipid << "\n";
 			return dist();
 		}
 
@@ -7189,33 +8228,44 @@ cout << "ERROR::Inconsistent ID\t\t" << central_eid << "\t\t" << candidates.at(0
 				ppp.push_back( eid2p3d(candidates[j].nbor_eipid) );
 				pppid.push_back( candidates[j].nbor_eipid );
 				dxyz.push_back( candidates[j].d );
-				quat nbori = eid2quaternion( candidates[j].nbor_eipid );
-				real_ori qnb[4] = { nbori.q0, nbori.q1, nbori.q2, nbori.q3 };
-				diso.push_back( RADIANT2DEGREE(disorientation_angle_fcc( qcentral, qnb )) );
+				squat qnbor = eid2quaternion( candidates[j].nbor_eipid );
+				squat qnbor_minus1 = qnbor.conjugate();
+
+				squat qcand = multiply_quaternion( qcentral, qnbor_minus1 );
+				ori_real theta = RADIANT2DEGREE(disorientation_angle_fcc_grimmer( qcand ));
+
+cout << "\t\t" << j << "\t\t" << theta << "\n";
+
+				diso.push_back( theta );
 				texid.push_back( eid2textureid(candidates[j].nbor_eipid) );
 			}
 			bool status = vtk_nbhd3d( ppp, pppid, dxyz, diso, texid, thisincrement );
 		}
 	}
 	//##MK::END OF DEBUG
-
+*/
 
 	for ( size_t i = 1; i < candidates.size(); ++i ) { //we start at one because we exclude ourselves
 
-		quat nbor_ori = eid2quaternion( candidates[i].nbor_eipid ); //##optimization via SIMD
-		real_ori qnbor[4] = { nbor_ori.q0, nbor_ori.q1, nbor_ori.q2, nbor_ori.q3 };
+		squat qnbor = eid2quaternion( candidates[i].nbor_eipid ); //##optimization via SIMD
+		squat qnbor_minus1 = qnbor.conjugate();
+
+		squat qcand = multiply_quaternion( qcentral, qnbor_minus1 );
+		pair<ori_real,ori_real> theta = disorientation_angle_fcc_grimmer( qcand );
 
 		//##MK::implement different thresholding algorithms in here
 
-		real_ori disori = disorientation_angle_fcc( qcentral, qnbor ); //MK::qcentral will not change!
+//cout << "\t\t" << i << "\t\t" << theta << "\n";
 
-		if ( disori >= Settings::CriticalDisoriAngle ) {
-//cout << "centralid/kickingcand/totalcand/kickingid/len/disori\t\t" << central_eid << "\t\t" << i << "\t\t" << candidates.size() << ";" << candidates[i].nbor_eipid << ";" << candidates[i].d << ";" << RADIANT2DEGREE(disori) << endl;
+		if ( theta.second >= Settings::CriticalDisoriAngle ) {
+//cout << "centralid/kickingcand/totalcand/kickingid/len/disori\t\t" << central_eid << "\t\t" << i << "\t\t" << candidates.size() << ";" << candidates[i].nbor_eipid << ";" << candidates[i].d << ";" << RADIANT2DEGREE(disori) << "\n";
 
 			//##MK::DEBUG filter out ids of suspicious
 			/*if ( i == 1 ) {
 				suspicious.push_back( central_eid );
 			}*/
+
+//cout << "----->>>" << i << "\t\t" << theta << "\n";
 
 			return candidates[i];
 		}
@@ -7248,7 +8298,7 @@ cout << "ERROR::Inconsistent ID\t\t" << central_eid << "\t\t" << candidates.at(0
 		csvlog << "GeneralizedDistance;StateVariableValue\n";
 
 		for (size_t i = 0; i < buf.size(); ++i) {
-			csvlog << buf.at(i).d << ";" << buf.at(i).sval << endl;
+			csvlog << buf.at(i).d << ";" << buf.at(i).sval << "\n";
 		}
 
 		csvlog.flush();
@@ -7279,7 +8329,7 @@ void specOutIncr::write_searchefficiency(vector<unsigned int> const & ntested )
 			srefflog << ntested.at(i) << "\n";
 		}
 		//closure
-		srefflog << endl;
+		srefflog << "\n";
 		srefflog.flush();
 		srefflog.close();
 	}
@@ -7288,10 +8338,12 @@ void specOutIncr::write_searchefficiency(vector<unsigned int> const & ntested )
 	}
 
 	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "IO::MetaWriteSearchEfficiency" + to_string(thisincrement)));
+
+	//tictoc.push_back(plog(tic, toc, "IO::MetaWriteSearchEfficiency" + to_string(thisincrement)));
 }
 
 
+/*
 void specOutIncr::write_histograms2_ascii(vector<real_xyz> const & bufd, vector<slipsysdata_fcc> const & bufedge, vector<slipsysdata_fcc> const & bufdipo)
 {
 	//check input length consistence
@@ -7322,7 +8374,7 @@ void specOutIncr::write_histograms2_ascii(vector<real_xyz> const & bufd, vector<
 			csvlog_e << bufedge.at(i).b2 << ";" << bufedge.at(i).b4 << ";" << bufedge.at(i).b5 << ";";
 			csvlog_e << bufedge.at(i).c1 << ";" << bufedge.at(i).c3 << ";" << bufedge.at(i).c5 << ";";
 			csvlog_e << bufedge.at(i).a2 << ";" << bufedge.at(i).a3 << ";" << bufedge.at(i).a6 << ";";
-			csvlog_e << bufedge.at(i).d1 << ";" << bufedge.at(i).d4 << ";" << bufedge.at(i).d6 << endl;
+			csvlog_e << bufedge.at(i).d1 << ";" << bufedge.at(i).d4 << ";" << bufedge.at(i).d6 << "\n";
 		}
 		//closure
 		csvlog_e.flush();
@@ -7333,7 +8385,8 @@ void specOutIncr::write_histograms2_ascii(vector<real_xyz> const & bufd, vector<
 	}
 
 	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "IO::WriteEdgeDensitySpatialDistr" + to_string(thisincrement)));
+
+	//tictoc.push_back(plog(tic, toc, "IO::WriteEdgeDensitySpatialDistr" + to_string(thisincrement)));
 
 
 	tic = MPI_Wtime();
@@ -7353,7 +8406,7 @@ void specOutIncr::write_histograms2_ascii(vector<real_xyz> const & bufd, vector<
 			csvlog_d << bufdipo.at(i).b2 << ";" << bufdipo.at(i).b4 << ";" << bufdipo.at(i).b5 << ";";
 			csvlog_d << bufdipo.at(i).c1 << ";" << bufdipo.at(i).c3 << ";" << bufdipo.at(i).c5 << ";";
 			csvlog_d << bufdipo.at(i).a2 << ";" << bufdipo.at(i).a3 << ";" << bufdipo.at(i).a6 << ";";
-			csvlog_d << bufdipo.at(i).d1 << ";" << bufdipo.at(i).d4 << ";" << bufdipo.at(i).d6 << endl;
+			csvlog_d << bufdipo.at(i).d1 << ";" << bufdipo.at(i).d4 << ";" << bufdipo.at(i).d6 << "\n";
 		}
 		//closure
 		csvlog_d.flush();
@@ -7364,13 +8417,15 @@ void specOutIncr::write_histograms2_ascii(vector<real_xyz> const & bufd, vector<
 	}
 
 	toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "IO::WriteDipoleDensitySpatialDistr" + to_string(thisincrement)));
+
+	//tictoc.push_back(plog(tic, toc, "IO::WriteDipoleDensitySpatialDistr" + to_string(thisincrement)));
 }
 
 
 void specOutIncr::write_histograms2_binary(vector<MPI_DisloSpatDistr_Double> const & bufedge, vector<MPI_DisloSpatDistr_Double> const & bufdipo)
 {
 	double tic, toc;
+
 	string prefix, fn;
 
 	tic = MPI_Wtime();
@@ -7392,25 +8447,26 @@ void specOutIncr::write_histograms2_binary(vector<MPI_DisloSpatDistr_Double> con
 	size_t ePerBlockCurr = ePerBlockTarget;
 	for( size_t eWritten = 0; eWritten < eTotal;    ) {
 		ePerBlockCurr = ((eWritten + ePerBlockTarget) < eTotal) ? ePerBlockTarget : eTotal - eWritten;
-cout << "eTotal/Target/Curr/Written " << eTotal << ";" << ePerBlockTarget << ";" << ePerBlockCurr << ";" << eWritten << endl;
+//cout << "eTotal/Target/Curr/Written " << eTotal << ";" << ePerBlockTarget << ";" << ePerBlockCurr << ";" << eWritten << "\n";
 		//get raw pointer to memory location where data are stored
 		const MPI_DisloSpatDistr_Double* thissection = bufedge.data();
-cout << "thissection " << thissection << endl;
+//cout << "thissection " << thissection << "\n";
 		//offset pointer to section where current block to be written begin
 		thissection += eWritten;
-cout << "thissection " << thissection << endl;
+//cout << "thissection " << thissection << "\n";
 
 		MPI_File_write_at( ioHdl, totalOffset, thissection, ePerBlockCurr, MPI_DisloSpatDistr_Double_Type, &ioSta);
-cout << "totalOffset " << totalOffset << endl;
+//cout << "totalOffset " << totalOffset << "\n";
 		totalOffset = totalOffset + (sizeof(MPI_DisloSpatDistr_Double) * ePerBlockCurr);
 		eWritten += ePerBlockCurr;
-cout << "totalOffset/eWritten " << totalOffset << ";" << eWritten << endl;
+//cout << "totalOffset/eWritten " << totalOffset << ";" << eWritten << "\n";
 	}
 
 	MPI_File_close(&ioHdl);
 
 	toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "IO::WriteEdgeDnsSpatDistrMPIIO" + to_string(thisincrement)));
+
+	//tictoc.push_back(plog(tic, toc, "IO::WriteEdgeDnsSpatDistrMPIIO" + to_string(thisincrement)));
 
 
 	tic = MPI_Wtime();
@@ -7438,8 +8494,101 @@ cout << "totalOffset/eWritten " << totalOffset << ";" << eWritten << endl;
 
 	MPI_File_close(&ioHdl);
 	toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "IO::WriteDipoleDnsSpatDistrMPIIO" + to_string(thisincrement)));
+
+	//tictoc.push_back(plog(tic, toc, "IO::WriteDipoleDnsSpatDistrMPIIO" + to_string(thisincrement)));
 }
+*/
+
+
+void specOutIncr::write_histograms2_binary_stress( vector<MPI_Tensor3x3SpatDistr_Double> const & bufstress )
+{
+	double tic = MPI_Wtime();
+
+	string fn = get_prefix() + ".Incr." +  to_string(thisincrement) + ".GrainStressSpatDistr.NR." + to_string(bufstress.size()) + ".NC.11.bin"; //##MK::11 = 1+1+9, grain id, dist, a11-a33
+
+	//utilize MPI I/O library
+	//open three files volume and nfaces and see
+	//two files per increment, individual specOutIncrHdl write files individually and in parallel
+	MPI_File ioHdl;
+	MPI_Status ioSta;
+
+	// open the file in create and write-only mode
+
+	//##MK::write in blocks to avoid writing more than N*sizeof(MPI_DisloSpatDistr_Double) elements &bufedge[0], static_cast
+	MPI_File_open(MPI_COMM_SELF, fn.c_str(), MPI_MODE_CREATE|MPI_MODE_WRONLY, MPI_INFO_NULL, &ioHdl);
+	long long totalOffset = 0;
+	size_t eTotal = bufstress.size();
+	size_t ePerBlockTarget = Performance::MPIIOStripeSize / sizeof(MPI_Tensor3x3SpatDistr_Double);
+	size_t ePerBlockCurr = ePerBlockTarget;
+	for( size_t eWritten = 0; eWritten < eTotal;    ) {
+		ePerBlockCurr = ((eWritten + ePerBlockTarget) < eTotal) ? ePerBlockTarget : eTotal - eWritten;
+//cout << "eTotal/Target/Curr/Written " << eTotal << ";" << ePerBlockTarget << ";" << ePerBlockCurr << ";" << eWritten << "\n";
+		//get raw pointer to memory location where data are stored
+		const MPI_Tensor3x3SpatDistr_Double* thissection = bufstress.data();
+//cout << "thissection " << thissection << "\n";
+		//offset pointer to section where current block to be written begin
+		thissection += eWritten;
+//cout << "thissection " << thissection << "\n";
+
+		MPI_File_write_at( ioHdl, totalOffset, thissection, ePerBlockCurr, MPI_Tensor3x3SpatDistr_Double_Type, &ioSta);
+//cout << "totalOffset " << totalOffset << "\n";
+		totalOffset = totalOffset + (sizeof(MPI_Tensor3x3SpatDistr_Double) * ePerBlockCurr);
+		eWritten += ePerBlockCurr;
+//cout << "totalOffset/eWritten " << totalOffset << ";" << eWritten << "\n";
+	}
+
+	MPI_File_close(&ioHdl);
+
+	double toc = MPI_Wtime();
+	memsnapshot mm = memsnapshot(); //tictoc.get_memoryconsumption();
+	tictoc.prof_elpsdtime_and_mem( "ReportGrainIDOriStressSpatDistr", APT_MPI_IO, APT_IS_SEQ, mm, tic, toc, thisincrement);
+}
+
+
+void specOutIncr::write_histograms2_binary_ori( vector<MPI_GrainOriSpatDistr_Double> const & bufori )
+{
+	double tic = MPI_Wtime();
+
+	string fn = get_prefix() + ".Incr." +  to_string(thisincrement) + ".GrainOriSpatDistr.NR." + to_string(bufori.size()) + ".NC.6.bin"; //##MK::10 = 1+9
+
+	//utilize MPI I/O library
+	//open three files volume and nfaces and see
+	//two files per increment, individual specOutIncrHdl write files individually and in parallel
+	MPI_File ioHdl;
+	MPI_Status ioSta;
+
+	// open the file in create and write-only mode
+
+	//##MK::write in blocks to avoid writing more than N*sizeof(MPI_DisloSpatDistr_Double) elements &bufedge[0], static_cast
+	MPI_File_open(MPI_COMM_SELF, fn.c_str(), MPI_MODE_CREATE|MPI_MODE_WRONLY, MPI_INFO_NULL, &ioHdl);
+	long long totalOffset = 0;
+	size_t eTotal = bufori.size();
+	size_t ePerBlockTarget = Performance::MPIIOStripeSize / sizeof(MPI_Tensor3x3SpatDistr_Double);
+	size_t ePerBlockCurr = ePerBlockTarget;
+	for( size_t eWritten = 0; eWritten < eTotal;    ) {
+		ePerBlockCurr = ((eWritten + ePerBlockTarget) < eTotal) ? ePerBlockTarget : eTotal - eWritten;
+//cout << "eTotal/Target/Curr/Written " << eTotal << ";" << ePerBlockTarget << ";" << ePerBlockCurr << ";" << eWritten << "\n";
+		//get raw pointer to memory location where data are stored
+		const MPI_GrainOriSpatDistr_Double* thissection = bufori.data();
+//cout << "thissection " << thissection << "\n";
+		//offset pointer to section where current block to be written begin
+		thissection += eWritten;
+//cout << "thissection " << thissection << "\n";
+
+		MPI_File_write_at( ioHdl, totalOffset, thissection, ePerBlockCurr, MPI_GrainOriSpatDistr_Double_Type, &ioSta);
+//cout << "totalOffset " << totalOffset << "\n";
+		totalOffset = totalOffset + (sizeof(MPI_GrainOriSpatDistr_Double) * ePerBlockCurr);
+		eWritten += ePerBlockCurr;
+//cout << "totalOffset/eWritten " << totalOffset << ";" << eWritten << "\n";
+	}
+
+	MPI_File_close(&ioHdl);
+
+	double toc = MPI_Wtime();
+	memsnapshot mm = memsnapshot(); //tictoc.get_memoryconsumption();
+	tictoc.prof_elpsdtime_and_mem( "ReportGrainIDQuatSpatDistr", APT_MPI_IO, APT_IS_SEQ, mm, tic, toc, thisincrement);
+}
+
 
 
 /*
@@ -7462,10 +8611,10 @@ unsigned int specOutIncr::anyGrainAlreadyAssigned( const size_t central_eid, vec
 	//##MK::BEGIN OF DEBUG
 	//unsigned int debuginspect = 4;
 	//if ( central_eid == debuginspect ) {
-	//	cout << "Candidate " << debuginspect << endl;
-	//	cout << "Candidate " << central_eid << endl;
+	//	cout << "Candidate " << debuginspect << "\n";
+	//	cout << "Candidate " << central_eid << "\n";
 	//	for (size_t k = 0; k < candidates.size(); ++k)
-	//		cout << candidates.at(k).d << "\t\t" << candidates.at(k).nbor_eipid << "\t\t" << p2g[candidates[k].nbor_eipid] << endl;
+	//		cout << candidates.at(k).d << "\t\t" << candidates.at(k).nbor_eipid << "\t\t" << p2g[candidates[k].nbor_eipid] << "\n";
 	//}
 	//##MK::END OF DEBUG
 
@@ -7477,7 +8626,7 @@ unsigned int specOutIncr::anyGrainAlreadyAssigned( const size_t central_eid, vec
 
 		//##MK::BEGIN OF DEBUG
 		//if ( central_eid == debuginspect )
-		//	cout << i << "\t\t" << nbor_gid << endl "-->";
+		//	cout << i << "\t\t" << nbor_gid << "\n" "-->";
 		//##MK::END OF DEBUG
 
 		if ( nbor_gid != numeric_limits<unsigned int>::max() ) {
@@ -7488,7 +8637,7 @@ unsigned int specOutIncr::anyGrainAlreadyAssigned( const size_t central_eid, vec
 
 			//##MK::BEGIN OF DEBUG
 			//if ( central_eid == debuginspect )
-			//	cout << disori << "\t\t" << Settings::GrainReconLocalDisoriAngle << endl;
+			//	cout << disori << "\t\t" << Settings::GrainReconLocalDisoriAngle << "\n";
 			//##MK::END OF DEBUG
 
 			if ( disori <= Settings::GrainReconLocalDisoriAngle ) {
@@ -7506,7 +8655,7 @@ unsigned int specOutIncr::anyGrainAlreadyAssigned( const size_t central_eid, vec
 	} //MK::we have to test all candidates for spatial contiguity
 
 	if ( found == true ) { //most likely
-cout << "centraleid/closestGID/closestDISORI\t\t" << central_eid << "\t\t" << closestGID << "\t\t" << RADIANT2DEGREE(closestDisori) << endl;
+cout << "centraleid/closestGID/closestDISORI\t\t" << central_eid << "\t\t" << closestGID << "\t\t" << RADIANT2DEGREE(closestDisori) << "\n";
 		return closestGID;
 	}
 	//implicit else --- either no grain yet assigned to any neighboring ip or all their assignments of oris too different in SO3
@@ -7514,7 +8663,7 @@ cout << "centraleid/closestGID/closestDISORI\t\t" << central_eid << "\t\t" << cl
 	grpool.push_back( agr );
 
 cout << "centraleid/newGrainGID/q0123\t\t" << central_eid << "\t\t" << grpool.back().gid << "\t\t";
-cout << grpool.back().ori.q0 << ";" << grpool.back().ori.q1 << ";" << grpool.back().ori.q2 << ";" << grpool.back().ori.q3 << endl;
+cout << grpool.back().ori.q0 << ";" << grpool.back().ori.q1 << ";" << grpool.back().ori.q2 << ";" << grpool.back().ori.q3 << "\n";
 
 	return grpool.back().gid;
 }
@@ -7530,7 +8679,7 @@ unsigned int specOutIncr::anyGrainAlreadyExistent1( const size_t central_eid,
 	//get orientation of central point
 	quat central_ori = eid2quaternion( central_eid );
 	real_ori qcentral[4] = { central_ori.q0, central_ori.q1, central_ori.q2, central_ori.q3 };
-	cout << "Central ori\t\t" << qcentral[0] << ";" << qcentral[1] << ";" << qcentral[2] << ";" << qcentral[3] << endl;
+	cout << "Central ori\t\t" << qcentral[0] << ";" << qcentral[1] << ";" << qcentral[2] << ";" << qcentral[3] << "\n";
 
 	//real_xyz closestDistance = numeric_limits<real_xyz>::max();
 	real_ori closestDisori = DEGREE2RADIANT(180.0);
@@ -7540,10 +8689,10 @@ unsigned int specOutIncr::anyGrainAlreadyExistent1( const size_t central_eid,
 	//##MK::BEGIN OF DEBUG
 	//unsigned int debuginspect = 4;
 	//if ( central_eid == debuginspect ) {
-	//	cout << "Candidate " << debuginspect << endl;
-		cout << "Candidate " << central_eid << endl;
+	//	cout << "Candidate " << debuginspect << "\n";
+		cout << "Candidate " << central_eid << "\n";
 		for (size_t k = 0; k < candidates.size(); ++k)
-			cout << candidates.at(k).d << "\t\t" << candidates.at(k).nbor_eipid << "\t\t" << p2g[candidates[k].nbor_eipid] << endl;
+			cout << candidates.at(k).d << "\t\t" << candidates.at(k).nbor_eipid << "\t\t" << p2g[candidates[k].nbor_eipid] << "\n";
 	//}
 	//##MK::END OF DEBUG
 
@@ -7552,7 +8701,7 @@ unsigned int specOutIncr::anyGrainAlreadyExistent1( const size_t central_eid,
 
 		//##MK::BEGIN OF DEBUG
 		//if ( central_eid == debuginspect )
-		//	cout << i << "\t\t" << nbor_gid << endl "-->";
+		//	cout << i << "\t\t" << nbor_gid << "\n" << "-->";
 		//##MK::END OF DEBUG
 
 		if ( nbor_gid != numeric_limits<unsigned int>::max() ) { //if this was possible
@@ -7563,7 +8712,7 @@ unsigned int specOutIncr::anyGrainAlreadyExistent1( const size_t central_eid,
 
 			//##MK::BEGIN OF DEBUG
 			//if ( central_eid == debuginspect )
-				cout << disori << "\t\t" << Settings::GrainReconLocalDisoriAngle << "\t\t" << qgr[0] << ";" << qgr[1] << ";" << qgr[2] << ";" << qgr[3] << endl;
+				cout << disori << "\t\t" << Settings::GrainReconLocalDisoriAngle << "\t\t" << qgr[0] << ";" << qgr[1] << ";" << qgr[2] << ";" << qgr[3] << "\n";
 			//##MK::END OF DEBUG
 
 			if ( disori <= Settings::GrainReconLocalDisoriAngle ) {
@@ -7585,7 +8734,7 @@ unsigned int specOutIncr::anyGrainAlreadyExistent1( const size_t central_eid,
 	} //MK::we have to test all candidates for spatial contiguity
 
 	if ( found == true ) { //most likely
-cout << "centraleid/closestGID/closestDISORI\t\t" << central_eid << "\t\t" << closestGID << "\t\t" << RADIANT2DEGREE(closestDisori) << endl;
+cout << "centraleid/closestGID/closestDISORI\t\t" << central_eid << "\t\t" << closestGID << "\t\t" << RADIANT2DEGREE(closestDisori) << "\n";
 		return closestGID;
 	}
 	//implicit else --- either no grain yet assigned to any neighboring ip or all their assignments of oris too different in SO3
@@ -7593,7 +8742,7 @@ cout << "centraleid/closestGID/closestDISORI\t\t" << central_eid << "\t\t" << cl
 	grpool.push_back( agr );
 
 cout << "centraleid/newGrainGID/q0123\t\t" << central_eid << "\t\t" << grpool.back().gid << "\t\t";
-cout << grpool.back().ori.q0 << ";" << grpool.back().ori.q1 << ";" << grpool.back().ori.q2 << ";" << grpool.back().ori.q3 << endl;
+cout << grpool.back().ori.q0 << ";" << grpool.back().ori.q1 << ";" << grpool.back().ori.q2 << ";" << grpool.back().ori.q3 << "\n";
 
 	return grpool.back().gid;
 }
@@ -7636,7 +8785,7 @@ cout << grpool.back().ori.q0 << ";" << grpool.back().ori.q1 << ";" << grpool.bac
 	} //MK::we have to test all candidates for spatial contiguity
 
 	if ( found == true ) { //most likely
-cout << "centraleid/closestGID/closestDISORI\t\t" << central_eid << "\t\t" << closestGID << "\t\t" << RADIANT2DEGREE(closestDisori) << endl;
+cout << "centraleid/closestGID/closestDISORI\t\t" << central_eid << "\t\t" << closestGID << "\t\t" << RADIANT2DEGREE(closestDisori) << "\n";
 		return closestGID;
 	}
 	//implicit else --- either no grain yet assigned to any neighboring ip or all their assignments of oris too different in SO3
@@ -7644,7 +8793,7 @@ cout << "centraleid/closestGID/closestDISORI\t\t" << central_eid << "\t\t" << cl
 	newgrpool.push_back( agr );
 
 cout << "centraleid/newGrainGID/q0123\t\t" << central_eid << "\t\t" << newgrpool.back().gid << "\t\t";
-cout << newgrpool.back().ori.q0 << ";" << newgrpool.back().ori.q1 << ";" << newgrpool.back().ori.q2 << ";" << newgrpool.back().ori.q3 << endl;
+cout << newgrpool.back().ori.q0 << ";" << newgrpool.back().ori.q1 << ";" << newgrpool.back().ori.q2 << ";" << newgrpool.back().ori.q3 << "\n";
 
 	return newgrpool.back().gid;
 
@@ -7682,7 +8831,8 @@ void specOutIncr::write_reconstructed_grains1( vector<grain> const & grpool )
 	}
 
 	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "IO::WriteReconstructedGrainMetaData" + to_string(thisincrement)));
+
+	//tictoc.push_back(plog(tic, toc, "IO::WriteReconstructedGrainMetaData" + to_string(thisincrement)));
 }
 
 void specOutIncr::write_identified_grains()
@@ -7714,7 +8864,8 @@ void specOutIncr::write_identified_grains()
 	}
 
 	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "IO::WriteIdentifiedGrainMetaData" + to_string(thisincrement)));
+
+	//tictoc.push_back(plog(tic, toc, "IO::WriteIdentifiedGrainMetaData" + to_string(thisincrement)));
 }
 
 
@@ -7729,32 +8880,32 @@ void specOutIncr::write_grainid_and_quaternions()
 			n = n + grains.ipsupport.at(gr)->size();
 		}
 		else {
-cout << "Writing of grainID and quaternion clouds was unsuccessful as uip data for at least one grain missing" << endl;
+cerr << "Writing of grainID and quaternion clouds was unsuccessful as uip data for at least one grain missing" << "\n";
 			return;
 		}
 	}
 
 	if ( n != head.NXYZ ) { //#MK::was this->
-cout << "Writing of grainID and quaternion clouds was unsuccessful as total number of uip data inconsistent to head.NXYZ expectation" << endl;
+cerr << "Writing of grainID and quaternion clouds was unsuccessful as total number of uip data inconsistent to head.NXYZ expectation" << "\n";
 		return;
 	}
 
 	//##MK::check 4*n against int max
 	if ( 4*n > (numeric_limits<int>::max() - 1) ) {
-cout << "Writing of grainID and quaternion clouds was unsuccessful because current file buffering strategy cannot deal with so large input dataset" << endl;
+cerr << "Writing of grainID and quaternion clouds was unsuccessful because current file buffering strategy cannot deal with so large input dataset" << "\n";
 		return;
 	}
 
 
 	try { u32_buffer = new unsigned int[n]; }
 	catch (bad_alloc &croak) {
-cout << "Writing of grainID and quaternion clouds was unsuccessful during u32_buffer allocation" << endl;
+cerr << "Writing of grainID and quaternion clouds was unsuccessful during u32_buffer allocation" << "\n";
 		return;
 	}
 
 	try { f32_buffer = new float[4*n]; }
 	catch (bad_alloc &croak) {
-cout << "Writing of grainID and quaternion clouds was unsuccessful during f32_buffer allocation" << endl;
+cerr << "Writing of grainID and quaternion clouds was unsuccessful during f32_buffer allocation" << "\n";
 		if (u32_buffer != NULL) { delete [] u32_buffer; u32_buffer = NULL; }
 		return;
 	}
@@ -7781,19 +8932,18 @@ cout << "Writing of grainID and quaternion clouds was unsuccessful during f32_bu
 			u32_buffer[u32_offset] = thisgid;
 			u32_offset += 1;
 
-			quat thisq = eid2quaternion( static_cast<unsigned int>(theseips->at(i)) );
+			squat qthis = eid2quaternion( static_cast<unsigned int>(theseips->at(i)) );
 
-			real_ori q[4] = {thisq.q0, thisq.q1, thisq.q2, thisq.q3 };
-
-			passive2active( q );
+			//qthis is passive since DAMASK v2.0.3
+			//passive2active( q );
 
 			//because have been converted during reading in and MTex utilizes active convention as it does DAMASK
 			//MK::THIS WILL CHANGE IN FUTURE VERSIONS OF DAMASK IN FAVOR FOR THE PASSIVE CONVENTION...
 
-			f32_buffer[f32_offset+0] = static_cast<float>(q[0]);
-			f32_buffer[f32_offset+1] = static_cast<float>(q[1]);
-			f32_buffer[f32_offset+2] = static_cast<float>(q[2]);
-			f32_buffer[f32_offset+3] = static_cast<float>(q[3]);
+			f32_buffer[f32_offset+0] = static_cast<float>(qthis.q0);
+			f32_buffer[f32_offset+1] = static_cast<float>(qthis.q1);
+			f32_buffer[f32_offset+2] = static_cast<float>(qthis.q2);
+			f32_buffer[f32_offset+3] = static_cast<float>(qthis.q3);
 			f32_offset += 4;
 		} //transfer all quaternions for uips from grain gr
 	}
@@ -7816,15 +8966,160 @@ cout << "Writing of grainID and quaternion clouds was unsuccessful during f32_bu
 	if (u32_buffer != NULL) { delete [] u32_buffer; u32_buffer = NULL; }
 	if (f32_buffer != NULL) { delete [] f32_buffer; f32_buffer = NULL; }
 
-cout << "Writing of grainID and quaternion clouds successful" << endl;
+cout << "Writing of grainID and quaternion clouds successful" << "\n";
 }
+
+
+void specOutIncr::write_grainid_and_quaternions_mpiio()
+{
+	double tic = MPI_Wtime();
+
+	//how many material points
+	size_t n = 0;
+	for( size_t gr = 0; gr < grains.polyxx.size(); gr++) {
+		if ( grains.ipsupport.at(gr) != NULL ) {
+			n = n + grains.ipsupport.at(gr)->size();
+		}
+		else {
+cerr << "Writing of grainID and quaternion clouds was unsuccessful as uip data for at least one grain missing" << "\n";
+			return;
+		}
+	}
+
+	if ( n != head.NXYZ ) {
+cerr << "Writing of grainID and quaternion clouds was unsuccessful as total number of uip data inconsistent to head.NXYZ expectation" << "\n";
+		return;
+	}
+
+	/*
+	vector<unsigned int> u32;
+	try {
+		u32 = vector<unsigned int>( n, numeric_limits<unsigned int>::max() );
+	}
+	catch (bad_alloc &croak) {
+cerr << "Writing of grainID and quaternion clouds was unsuccessful during u32 buffer allocation" << "\n";
+		return;
+	}
+	*/
+
+	vector<MPI_GrainQuat_Double> buf;
+	try {
+		buf = vector<MPI_GrainQuat_Double>( n, MPI_GrainQuat_Double() ); //grain id + four quaternion components
+	}
+	catch (bad_alloc &croak) {
+cerr << "Writing of grainID and quaternion clouds was unsuccessful during f64 buffer allocation" << "\n";
+		return;
+	}
+
+	memRegion* thisregion = NULL;
+	size_t offset = 0;
+
+	for (size_t mr = 0; mr < db.size(); mr++) {
+		thisregion = db.at(mr);
+		size_t eip_s = thisregion->eipid_start;
+		size_t eip_n = thisregion->eipid_n;
+		size_t eid = eip_s;
+
+		for (size_t e = 0; e < eip_n; ++e) {
+			//p3d matpoint = p3d(
+			//			thisregion->grid.xyz0[e].x + thisregion->grid.dxyz_avg[e].dx + thisregion->grid.dxyz_flu[e].dx,
+			//			thisregion->grid.xyz0[e].y + thisregion->grid.dxyz_avg[e].dy + thisregion->grid.dxyz_flu[e].dy,
+			//			thisregion->grid.xyz0[e].z + thisregion->grid.dxyz_avg[e].dz + thisregion->grid.dxyz_flu[e].dz );
+
+			unsigned int g = thisregion->crystallite.GrainID.at(e);
+			squat sq = thisregion->crystallite.q.at(e);
+
+			buf[offset] = MPI_GrainQuat_Double( static_cast<double>(g), static_cast<double>(sq.q0),
+					static_cast<double>(sq.q1), static_cast<double>(sq.q2), static_cast<double>(sq.q3) );
+			offset++;
+		}
+	}
+
+	double toc = MPI_Wtime();
+
+	//tictoc.push_back(plog(tic, toc, "IO::WriteGrainIDandQuatPrepare" + to_string(thisincrement)));
+
+	//utilize MPI I/O library
+	//open three files volume and nfaces and see
+	//two files per increment, individual specOutIncrHdl write files individually and in parallel
+	MPI_File ioHdl;
+	MPI_Status ioSta;
+
+	/*
+	tic = MPI_Wtime();
+
+	string fn = get_prefix() + ".Incr." +  to_string(thisincrement) + ".GrainID.NR."
+			+ to_string(f32.size()) + ".NC.1.bin";
+
+	// open the file in create and write-only mode
+	//##MK::write in blocks to avoid writing more than N*sizeof(MPI_DisloSpatDistr_Double) elements &bufedge[0], static_cast
+	MPI_File_open(MPI_COMM_SELF, fn.c_str(), MPI_MODE_CREATE|MPI_MODE_WRONLY, MPI_INFO_NULL, &ioHdl);
+	//write in one go
+	MPI_File_write_at( ioHdl, 0, u32.data(), u32.size(), MPI_UNSIGNED, &ioSta);
+cout << "#####ioSta ??" << "\n";
+	MPI_File_close(&ioHdl);
+
+	u32 = vector<unsigned int>();
+	toc = MPI_Wtime();
+	tictoc.push_back(plog(tic, toc, "IO::WriteGrainIDandQuatIDs" + to_string(thisincrement)));
+	*/
+
+	string fn = get_prefix() + ".Incr." +  to_string(thisincrement) + ".GrainIDQuat.NR."
+				+ to_string(buf.size()) + ".NC.5.bin";
+
+	//utilize MPI I/O library
+	MPI_File_open(MPI_COMM_SELF, fn.c_str(), MPI_MODE_CREATE|MPI_MODE_WRONLY, MPI_INFO_NULL, &ioHdl);
+	long long totalOffset = 0;
+	size_t eTotal = buf.size();
+	size_t ePerBlockTarget = Performance::MPIIOStripeSize / sizeof(MPI_GrainQuat_Double);
+	size_t ePerBlockCurr = ePerBlockTarget;
+	for( size_t eWritten = 0; eWritten < eTotal;    ) {
+		ePerBlockCurr = ((eWritten + ePerBlockTarget) < eTotal) ? ePerBlockTarget : eTotal - eWritten;
+//cout << "eTotal/Target/Curr/Written " << eTotal << ";" << ePerBlockTarget << ";" << ePerBlockCurr << ";" << eWritten << "\n";
+		//get raw pointer to memory location where data are stored
+		const MPI_GrainQuat_Double* thissection = buf.data();
+//cout << "thissection " << thissection << "\n";
+		//offset pointer to section where current block to be written begin
+		thissection += eWritten;
+//cout << "thissection " << thissection << "\n";
+
+		MPI_File_write_at( ioHdl, totalOffset, thissection, ePerBlockCurr, MPI_GrainQuat_Double_Type, &ioSta);
+//cout << "totalOffset " << totalOffset << "\n";
+		totalOffset = totalOffset + (sizeof(MPI_GrainQuat_Double) * ePerBlockCurr);
+		eWritten += ePerBlockCurr;
+//cout << "totalOffset/eWritten " << totalOffset << ";" << eWritten << "\n";
+	}
+
+	/*
+	// open the file in create and write-only mode
+	MPI_File_open(MPI_COMM_SELF, fn.c_str(), MPI_MODE_CREATE|MPI_MODE_WRONLY, MPI_INFO_NULL, &ioHdl);
+	//write in one go
+	MPI_File_write_at( ioHdl, 0, f64.data(), f64.size(), MPI_DOUBLE, &ioSta);
+	*/
+
+	MPI_File_close(&ioHdl);
+/*
+	if ( ioSta.MPI_ERROR == MPI_SUCCESS ) {
+		reporting( "Writing grainID and quaternion was successful", myrank, 0, true );
+	}
+	else {
+		complaining( "Writing grainID and quaternion failed!", myrank, 0 );
+	}
+*/
+	buf = vector<MPI_GrainQuat_Double>();
+
+	toc = MPI_Wtime();
+
+	//tictoc.push_back(plog(tic, toc, "IO::WriteGrainIDandQuatQuats" + to_string(thisincrement)));
+}
+
 
 void specOutIncr::report_rveshapes()
 {
-	cout << "Reporting RVE Shape corner points" << endl;
+	cout << "Reporting RVE Shape corner points" << "\n";
 	if ( rveShape.sp.size() == rveShape.nm.size() ) {
 		for(size_t i = 0; i < rveShape.sp.size(); ++i ) {
-			cout << rveShape.sp.at(i) << rveShape.nm.at(i) << endl;
+			cout << rveShape.sp.at(i) << rveShape.nm.at(i) << "\n";
 		}
 	}
 	rveShape.sp.clear();
@@ -7833,7 +9128,7 @@ void specOutIncr::report_rveshapes()
 
 void specOutIncr::free_increment_heavydata()
 {
-	double tic = MPI_Wtime();
+	//double tic = MPI_Wtime();
 
 	for ( size_t t = 0; t < db.size(); ++t ) {
 		if ( db.at(t) != NULL ) {
@@ -7847,8 +9142,8 @@ void specOutIncr::free_increment_heavydata()
 	rveBaseIni = bv3x3();
 	rveBaseDef = bv3x3();
 
-	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "Processing::FreeMemoryHeavyData" + to_string(thisincrement)));
+	//double toc = MPI_Wtime();
+	//tictoc.push_back(plog(tic, toc, "Processing::FreeMemoryHeavyData" + to_string(thisincrement)));
 
 	thisincrement = numeric_limits<unsigned int>::max();
 	thiswrittenincrement = numeric_limits<unsigned int>::max();
@@ -7875,10 +9170,10 @@ void specOutIncr::free_increment_grains()
 
 void specOutIncr::free_increment_sdf()
 {
-	for(size_t s = 0; s < sdf.size(); ++s) {
+	for(size_t s = 0; s < sdf.size(); s++) {
 		if (sdf.at(s) != NULL) {
 			delete sdf.at(s);
-			sdf.at(s) = NULL;
+			//sdf.at(s) = NULL;
 		}
 	}
 	sdf.clear();
@@ -7888,14 +9183,15 @@ void specOutIncr::free_increment_sdf()
 
 
 //MK::tags should be disjoint!
+#define TAG_DHEALTH		10
 #define TAG_VAVG		11
 #define TAG_FPAVG		12
 #define TAG_FAVG		13
 #define TAG_PAVG		14
 #define TAG_EPSAVG		15
 #define TAG_CAUAVG		16
-
 #define TAG_VMISES		17
+#define TAG_TENS		18
 
 /*
 void specOutIncr::report_flowcurve()
@@ -8007,7 +9303,7 @@ void specOutIncr::report_flowcurve()
 		if ( flowcurve_sampled.is_open() == true ) {
 			diary whatwasdone = diary(Settings::SimID);
 			flowcurve_sampled << setprecision(32);
-			flowcurve_sampled << whatwasdone << endl;
+			flowcurve_sampled << whatwasdone << "\n";
 
 			//Origin inspired three-column header with column name tag, units, and proposal explanation
 			flowcurve_sampled << "LoadCaseID;LoadCaseIncr;IncrementID;vMisesEqvTrueStrain;vMisesEqCauchyStress;Volume;F11;F12;F13;F21;F22;F23;F31;F32;F33\n";
@@ -8060,8 +9356,20 @@ void specOutIncr::report_flowcurve2()
 				if ( incr2rank.find(incr) != incr2rank.end() ) {
 					//MK::all processes know who computes which increment
 					int whom = incr2rank.find(incr)->second;
-					int me = get_myrank(); //#MK::was this->
+					int me = get_myrank();
 
+					int heavydata_exist = 0; //all assume heavydata are not existent or faulty
+					if ( incr2healthy.find(incr) != incr2healthy.end() ) { //only process whom knows status of heavy data for incr
+						if ( incr2healthy.find(incr)->second == true ) { //and potentially updates status
+							heavydata_exist = 1;
+						}
+					}
+					//collective Broadcast
+					MPI_Bcast( &heavydata_exist, 1, MPI_INT, whom, MPI_COMM_WORLD );
+					if ( heavydata_exist != 1 )
+						continue;
+
+					//not continued, data existent so collect from
 					if ( me == MASTER ) {
 						if ( whom == MASTER ) { //no comm required as master has local data already, buffer directly ##MK::could also write immediately...
 							//##MK::find correct data, could be optimized
@@ -8211,7 +9519,7 @@ void specOutIncr::report_flowcurve2()
 		if ( flowcurve_sampled.is_open() == true ) {
 			diary whatwasdone = diary(Settings::SimID);
 			flowcurve_sampled << setprecision(32);
-			flowcurve_sampled << whatwasdone << endl;
+			flowcurve_sampled << whatwasdone << "\n";
 
 			//Origin inspired three-column header with column name tag, units, and proposal explanation
 			flowcurve_sampled << "LoadCaseID;LoadCaseIncr;IncrementID;Volume;";
@@ -8262,18 +9570,249 @@ void specOutIncr::report_flowcurve2()
 
 	//MK::necessary, whenever attempting MPI parallel computations requiring syncing thereafter!
 	MPI_Barrier(MPI_COMM_WORLD);
+
 	double toc = MPI_Wtime();
-	tictoc.push_back(plog(tic, toc, "IO::ReportingFlowcurve"));
+	//tictoc.push_back(plog(tic, toc, "IO::ReportingFlowcurve"));
 }
 
 
+void specOutIncr::report_flowcurve3( const string fbase, const unsigned int which )
+{
+	//collect RVE-volume averaged increment data from the MPI processes at MASTER into one flow curve output table
+	reporting( "Writing flowcurve to file", myrank, 0, true ); //##MK::true or false
 
+	double tic = MPI_Wtime();
+	//collective operation across MPI_COMM_WORLD because load increment output is potentially distributed across processes
+	ofstream flowcurve_sampled;
+	string fn = get_prefix() + ".Incr.All.Flowcurve." + fbase + ".csv";
+
+	if ( get_myrank() == MASTER ) { //only master opens, orchestrated processing across MPI_COMM_WORLD to collect missing results...
+		//each converged DAMASK spectral solver increment represent one point on the simulated flow curve
+		flowcurve_sampled.open( fn.c_str(), ofstream::out | std::ofstream::trunc );
+		//MK::thereby silently discarding all data if file with named fn already exists in working directory!
+		if ( flowcurve_sampled.is_open() == true ) {
+			//##MK::intended for meta data documenting
+			diary whatwasdone = diary(Settings::SimID);
+			flowcurve_sampled << setprecision(32);
+			flowcurve_sampled << whatwasdone << "\n";
+
+			//Origin inspired three-column header with column name tag, units, and proposal explanation
+			flowcurve_sampled << "LoadCaseID;LoadCaseIncr;IncrementID;";  //EqvVonMisesStrain;EqvVonMisesStress;";
+			flowcurve_sampled << "CauchyStressF11;CauchyStressF12;CauchyStressF13;";
+			flowcurve_sampled << "CauchyStressF21;CauchyStressF22;CauchyStressF23;";
+			flowcurve_sampled << "CauchyStressF31;CauchyStressF32;CauchyStressF33;";
+
+			if ( which == EPS_RIGHTCAUCHYGREEN_LN_FT ) {
+				flowcurve_sampled << "RightGreenBasedOnF11;RightGreenBasedOnF12;RightGreenBasedOnF13;";
+				flowcurve_sampled << "RightGreenBasedOnF21;RightGreenBasedOnF22;RightGreenBasedOnF23;";
+				flowcurve_sampled << "RightGreenBasedOnF31;RightGreenBasedOnF32;RightGreenBasedOnF33;";
+				flowcurve_sampled << "VonMisesRightGreenBasedOnF;VonMisesCauchyBasedOnF\n";
+			}
+			else { // which == EPS_RIGHTCAUCHYGREEN_LN_FP
+				flowcurve_sampled << "RightGreenBasedOnFp11;RightGreenBasedOnFp12;RightGreenBasedOnFp13;";
+				flowcurve_sampled << "RightGreenBasedOnFp21;RightGreenBasedOnFp22;RightGreenBasedOnFp23;";
+				flowcurve_sampled << "RightGreenBasedOnFp31;RightGreenBasedOnFp32;RightGreenBasedOnFp33;";
+				flowcurve_sampled << "VonMisesRightGreenBasedOnFp;VonMisesCauchyBasedOnFp\n";
+			}
+		} //header of output file prepared, lets collect data
+	}
+
+	unsigned int incr = head.sincr;
+	unsigned int targetincr = Settings::IncrementFirst;
+	for ( unsigned int loadcase = 0; loadcase < head.loadcases; ++loadcase) {
+		unsigned int li_last = (head.loadcasesmeta.size()==1) ?
+				head.loadcasesmeta.at(loadcase).nincr + 1 : head.loadcasesmeta.at(loadcase).nincr;
+
+		for ( unsigned int li = 0; li < li_last; ++li ) {
+			if ( incr == targetincr ) {
+				//not necessarily for each converged increment dump data were written
+				if ( incr2rank.find(incr) != incr2rank.end() ) {
+					//MK::all processes know who computes which increment
+					int whom = incr2rank.find(incr)->second;
+					int me = get_myrank();
+
+					int heavydata_exist = 0; //all assume heavydata are not existent or faulty
+					if ( incr2healthy.find(incr) != incr2healthy.end() ) { //only process whom knows status of heavy data for incr
+						if ( incr2healthy.find(incr)->second == true ) { //and potentially updates status
+							heavydata_exist = 1;
+						}
+					}
+					MPI_Bcast( &heavydata_exist, 1, MPI_INT, whom, MPI_COMM_WORLD ); //collective Broadcast to assure consistent view across processes
+					if ( heavydata_exist != 1 )
+						continue;
+
+					//not continued, data existent, so if master write, if other send and have master recv and write
+					if ( me == MASTER ) {
+						//in any case write meta data of increment
+						flowcurve_sampled << loadcase << ";" << li << ";" << incr << ";";
+
+						t3x3 Strainn = t3x3();
+						t3x3 Stresss = t3x3();
+
+						//now collect/write specific results
+						if ( whom == MASTER ) { //no comm required as master has local data already, buffer directly ##MK::could also write immediately...
+							for( auto it = avg2.begin(); it != avg2.end(); ++it ) {
+								if ( it->info.loadcaseID != loadcase || it->info.localincrID != li || it->info.globalincrID != incr )
+									continue;
+								//not continued, so bucket for avg2 results found but values not necessarily exist...
+								auto cau33 = it->RVEAvgTensorial.find( CAUCHY_STRESS );
+								if ( cau33 != it->RVEAvgTensorial.end() ) {
+									flowcurve_sampled << cau33->second.a11 << ";" << cau33->second.a12 << ";" << cau33->second.a13 << ";";
+									flowcurve_sampled << cau33->second.a21 << ";" << cau33->second.a22 << ";" << cau33->second.a23 << ";";
+									flowcurve_sampled << cau33->second.a31 << ";" << cau33->second.a32 << ";" << cau33->second.a33 << ";";
+
+									Stresss = cau33->second;
+								}
+								else {
+									t3x3 cauerr = failt3x3();
+									flowcurve_sampled << cauerr.a11 << ";" << cauerr.a12 << ";" << cauerr.a13 << ";";
+									flowcurve_sampled << cauerr.a21 << ";" << cauerr.a22 << ";" << cauerr.a23 << ";";
+									flowcurve_sampled << cauerr.a31 << ";" << cauerr.a32 << ";" << cauerr.a33 << ";";
+								}
+								/*
+								auto eqvstr = it->RVEAvgScalar.find( VONMISES_STRAIN );
+								if ( eqvstr != it->RVEAvgScalar.end() )
+									flowcurve_sampled << eqvstr->second << ";";
+								else
+									flowcurve_sampled << numeric_limits<float>::max() << ";";
+								auto eqvcau = it->RVEAvgScalar.find( VONMISES_STRESS );
+								if ( eqvcau != it->RVEAvgScalar.end() )
+									flowcurve_sampled << eqvcau->second << ";";
+								else
+									flowcurve_sampled << numeric_limits<float>::max() << ";";
+								*/
+								if ( which == EPS_RIGHTCAUCHYGREEN_LN_FT || which == EPS_RIGHTCAUCHYGREEN_LN_FP ) {
+
+									auto eps33 = it->RVEAvgTensorial.find( EPS_RIGHTCAUCHYGREEN_LN_FT );
+									if ( which == EPS_RIGHTCAUCHYGREEN_LN_FP ) //i.e. != EPS_RIGHTCAUCHYGREEN_LN_FT
+										eps33 = it->RVEAvgTensorial.find( EPS_RIGHTCAUCHYGREEN_LN_FP );
+
+									if ( eps33 != it->RVEAvgTensorial.end() ) { //item exists
+										Strainn = eps33->second;
+
+										vMises res = vMises(computeMises(Strainn, false), computeMises(Stresss, true));
+
+										flowcurve_sampled << eps33->second.a11 << ";" << eps33->second.a12 << ";" << eps33->second.a13 << ";";
+										flowcurve_sampled << eps33->second.a21 << ";" << eps33->second.a22 << ";" << eps33->second.a23 << ";";
+										flowcurve_sampled << eps33->second.a31 << ";" << eps33->second.a32 << ";" << eps33->second.a33 << ";";
+										flowcurve_sampled << res.vMisesEquivStrain << ";" << res.vMisesEquivStress << "\n";
+									}
+									else {
+										t3x3 epserr = failt3x3();
+										flowcurve_sampled << epserr.a11 << ";" << epserr.a12 << ";" << epserr.a13 << ";";
+										flowcurve_sampled << epserr.a21 << ";" << epserr.a22 << ";" << epserr.a23 << ";";
+										flowcurve_sampled << epserr.a31 << ";" << epserr.a32 << ";" << epserr.a33 << ";";
+										flowcurve_sampled << numeric_limits<float>::max() << ";" << numeric_limits<float>::max() << "\n";
+									}
+									break;
+								}
+							}
+						}
+						else { //comm required because a different rank than MASTER processed this incr, so master has to collect first
+							/*
+							MPI_VonMises_Double recv_vm = MPI_VonMises_Double();
+							MPI_Recv( &recv_vm, 1, MPI_VonMises_Double_Type, whom, TAG_VMISES, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+							flowcurve_sampled << recv_vm.eps << ";" << recv_vm.sigma << ";";
+							*/
+
+							MPI_Tensor3x3_Double recv1 = MPI_Tensor3x3_Double();
+							MPI_Recv( &recv1, 1, MPI_Tensor3x3_Double_Type, whom, TAG_CAUAVG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+							flowcurve_sampled << recv1.a11 << ";" << recv1.a12 << ";" << recv1.a13 << ";";
+							flowcurve_sampled << recv1.a21 << ";" << recv1.a22 << ";" << recv1.a23 << ";";
+							flowcurve_sampled << recv1.a31 << ";" << recv1.a32 << ";" << recv1.a33 << ";";
+
+							MPI_Tensor3x3_Double recv2 = MPI_Tensor3x3_Double(); //Fp based rightcauchygreen for matt kasemer
+							MPI_Recv( &recv2, 1, MPI_Tensor3x3_Double_Type, whom, TAG_TENS, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+							flowcurve_sampled << recv2.a11 << ";" << recv2.a12 << ";" << recv2.a13 << ";";
+							flowcurve_sampled << recv2.a21 << ";" << recv2.a22 << ";" << recv2.a23 << ";";
+							flowcurve_sampled << recv2.a31 << ";" << recv2.a32 << ";" << recv2.a33 << ";";
+
+							Stresss = t3x3( recv1.a11, recv1.a12, recv1.a13,
+												recv1.a21, recv1.a22, recv1.a23,
+													recv1.a31, recv1.a32, recv1.a33 );
+
+							Strainn = t3x3( recv2.a11, recv2.a12, recv2.a13,
+												recv2.a21, recv2.a22, recv2.a23,
+													recv2.a31, recv2.a32, recv2.a33 );
+
+							vMises res = vMises(computeMises(Strainn, false), computeMises(Stresss, true));
+
+							flowcurve_sampled << res.vMisesEquivStrain << ";" << res.vMisesEquivStress << "\n";
+						}
+					} //for all other processes
+					else { //which are not the master
+						if ( whom == me ) { //only the one who holds the data is of interest and allowed to send to master...
+							for( auto it = avg2.begin(); it != avg2.end(); ++it ) {
+								if ( it->info.loadcaseID != loadcase || it->info.localincrID != li || it->info.globalincrID != incr )
+									continue;
+								//not continued, so bucket for avg2 results found but values not necessarily exist...
+								/*
+								auto eqvstr = it->RVEAvgScalar.find( VONMISES_STRAIN );
+								auto eqvcau = it->RVEAvgScalar.find( VONMISES_STRESS );
+								//MK::me NEEDS to SEND sth even if nothing is found because how should the master know nothing was found
+								MPI_VonMises_Double snd_vm = MPI_VonMises_Double(); //so init with default error value
+								if ( eqvstr != it->RVEAvgScalar.end() && eqvcau != it->RVEAvgScalar.end() ) { //overwrite if result found
+									snd_vm.sigma = eqvcau->second;
+									snd_vm.eps = eqvstr->second;
+								}
+								//but send in every case
+								MPI_Send( &snd_vm, 1, MPI_VonMises_Double_Type, MASTER, TAG_VMISES, MPI_COMM_WORLD);
+								*/
+
+								MPI_Tensor3x3_Double snd1 = MPI_Tensor3x3_Double( failt3x3() );
+								auto cau33 = it->RVEAvgTensorial.find( CAUCHY_STRESS );
+								if ( cau33 != it->RVEAvgTensorial.end() )
+									snd1 = cau33->second;
+								//else snd1 remains an error value but is send anyway
+								MPI_Send( &snd1, 1, MPI_Tensor3x3_Double_Type, MASTER, TAG_CAUAVG, MPI_COMM_WORLD);
+
+								MPI_Tensor3x3_Double snd2 = MPI_Tensor3x3_Double( failt3x3() );
+								if ( which == EPS_RIGHTCAUCHYGREEN_LN_FT || which == EPS_RIGHTCAUCHYGREEN_LN_FP ) {
+									auto eps33 = it->RVEAvgTensorial.find( EPS_RIGHTCAUCHYGREEN_LN_FT );
+									if ( which == EPS_RIGHTCAUCHYGREEN_LN_FP ) //i.e. != EPS_RIGHTCAUCHYGREEN_LN_FT
+										eps33 = it->RVEAvgTensorial.find( EPS_RIGHTCAUCHYGREEN_LN_FP );
+
+									if ( eps33 != it->RVEAvgTensorial.end() ) { //item exists
+										snd2 = eps33->second;
+									}
+								}
+								MPI_Send( &snd2, 1, MPI_Tensor3x3_Double_Type, MASTER, TAG_TENS, MPI_COMM_WORLD);
+
+								break;
+							}
+						} //whom should send it has done so
+						//whom not, i.e. me is neither a MASTER nor a whom, is not responsible for I/O for this incr
+					} //tasks for non-master processes defined
+					//MPI_Barrier(MPI_COMM_WORLD); //##MK::this barrier is not necessary only for DEBUGGING !
+				} //processing of desired targetincr performed
+			}
+
+			incr++;
+			targetincr += Settings::IncrementOffset;
+			if ( targetincr > Settings::IncrementLast )
+				targetincr = Settings::IncrementLast; //thus enforcing a stop criterion, as incr keeps increasing...
+		} //find targetincrements in steps of current loadcase
+	} //find targetincrements in next loadcase
+
+	if ( get_myrank() == MASTER ) {
+		flowcurve_sampled.flush();
+		flowcurve_sampled.close();
+	}
+
+	//MK::necessary, whenever attempting MPI parallel computations requiring syncing thereafter!
+	MPI_Barrier(MPI_COMM_WORLD);
+
+	double toc = MPI_Wtime();
+	//tictoc.push_back(plog(tic, toc, "IO::ReportingFlowcurve"));
+}
+
+/*
 void specOutIncr::spit_profiling()
 {
 	//##MK::further optimization aand convenience tasks: bundle all in one file, incr ID and so forth
 
 	//##MK::suboptimal... one file per rank
-	string fn = get_prefix() +  ".Incr.All.WallClock.csv";
+	string fn = get_prefix() +  ".All.WallClock.csv";
 
 	ofstream csvlog;
 	csvlog.open(fn.c_str(), ofstream::out | ofstream::trunc);
@@ -8285,7 +9824,7 @@ void specOutIncr::spit_profiling()
 		csvlog << "What;MPI_Wtime\n";
 
 		for (size_t i = 0; i < tictoc.size(); ++i) {
-			csvlog << tictoc.at(i).get_what() << ";" << tictoc.at(i).get_dt() << endl;
+			csvlog << tictoc.at(i).get_what() << ";" << tictoc.at(i).get_dt() << "\n";
 		}
 
 		csvlog.flush();
@@ -8295,6 +9834,7 @@ void specOutIncr::spit_profiling()
 		stopping("Unable to write local processing files", get_myrank(), 0);
 	}
 }
+*/
 
 
 void specOutIncr::debug_signed_distance_function()

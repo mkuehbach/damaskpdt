@@ -41,11 +41,25 @@
 
 #ifndef __PDT_ABINITIO_H__
 #define __PDT_ABINITIO_H__
-
 //natural constants
-#define PI								(3.141592653589793238462643383279502884197169399375105820974)
-#define kboltzmann						(1.3806488e-23)		//J/(Kmol)
-#define echarge							(1.602176565e-19)	//C
+#define MYPI							(3.141592653589793238462643383279502884197169399375105820974)
+#define kboltzmann						(1.3806488e-23)		//J/Kmol
+#define echarge							(1.602176565e-19)	//Coulomb
+#define Navogadro						(6.022140857e+23)	//1/mol
+#define RGAS							(8.31446154) 		//(Navogadro)*(kboltzmann)) //J/K/mol
+
+//natural beauty
+#define SQR(a)							((a)*(a))
+#define CUBE(a)							((a)*(a)*(a))
+#define MIN(X,Y)						(((X) < (Y)) ? (X) : (Y))
+#define MAX(X,Y)						(((X) < (Y)) ? (Y) : (X))
+#define CLAMP(x,lo,hi)					(MIN(MAX((x), (lo)), (hi)))
+
+/*
+//logical
+#define NO								0x00
+#define YES								0x01
+*/
 
 //naming definitions for more intuitive code reading
 #define TWO_DIMENSIONS					2

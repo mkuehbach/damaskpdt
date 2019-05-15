@@ -42,6 +42,24 @@
 #ifndef __PDT_BOOSTSIMD_H__
 #define __PDT_BOOSTSIMD_H__
 
+//boost c++ library
+#include <boost/geometry.hpp>
+#include <boost/geometry/geometries/point_xy.hpp>
+#include <boost/geometry/geometries/polygon.hpp>
+#include <boost/assign/std/vector.hpp>
+#include <boost/geometry/algorithms/assign.hpp>
+
+#include <boost/geometry/strategies/cartesian/point_in_poly_franklin.hpp>
+
+
+using namespace boost::assign;
+typedef boost::geometry::model::d2::point_xy<voro_real> point_xy;
+
+typedef boost::geometry::strategy::within::franklin<point_xy, point_xy, void> fran;
+
+
+
+
 //BoostSIMD howto
 //git clone https://github.com/NumScale/boost.simd.git within src/thirdparty
 //modify include directories within makefile with absolute (required ##?) path indexing
@@ -54,7 +72,7 @@
 /*
 //BSIMD hello world
 	bs::pack<float,4> p{1.f,2.f,3.f,4.f};
-	cout << p + 10*p << endl;
+	cout << p + 10*p << "\n";
 	return 0;
 */
 

@@ -46,7 +46,7 @@ using namespace rapidxml;
 
 
 E_ANALYSIS_MODE Settings::AnalysisMode = E_DEBUG;
-//E_THRESHOLDING_MODE Settings::SpatialDistrThrshldModel = E_CLOSESTNBORIP_DISORIANGLE_THRESHOLD;	//which is the decisive quantity against which one thresholds distance when quantifying the accumulation of state variable values
+//E_THRESHOLDING_MODE Settings::SpatialDistrThrshldModel = E_DISORIANGLE;	//which is the decisive quantity against which one thresholds distance when quantifying the accumulation of state variable values
 string Settings::SpectralOutFilename = "";
 unsigned int Settings::IncrementFirst = 0;
 unsigned int Settings::IncrementOffset = 1;
@@ -60,8 +60,10 @@ bool Settings::AnalyzeAddDisplacements = false;
 bool Settings::AnalyzeStateVarSpatialDistr = false;
 bool Settings::AnalyzeReconstructGrains = false;
 
+string Settings::AddStrainTensorOpts = "";
+
 unsigned int Settings::GrainReconModel = E_HIERARCHICAL_CLUSTERING;
-unsigned int Settings::StateVarThrshldModel = E_CLOSESTNBORIP_DISORIANGLE_THRESHOLD;
+unsigned int Settings::StateVarThrshldModel = E_DISORIANGLE;
 bool Settings::ThrshldAgainstDefConfig = false;
 
 unsigned long Settings::SimID = 0;
@@ -80,6 +82,8 @@ long double Settings::GrainReconLouvainPrecision = LOUVAIN_DEFAULT_PRECISION;
 
 unsigned int Settings::PVTessGuardZoneEdgeLen = 3; 		//in multiples of generalized coordinate PVTessCubeVoxelEdgeLen
 
+real_xyz Settings::VoroTessContourGuardEdgeLen = 0.0;
+
 unsigned int Settings::VisIPGridWithTextureID = 0;
 unsigned int Settings::VisIPGridWithGrainID = 0;
 unsigned int Settings::VisIPGridWithPerImages = 0;
@@ -92,6 +96,8 @@ unsigned int Settings::VisGrainLocalVoxelGrid = 0;
 unsigned int Settings::VisGrainFinalReconstruction = 0;
 
 unsigned int Settings::VisGrainQuaternionClouds = 0;
+unsigned int Settings::VisLOUVAINGraphEdges = 0;
+
 double Settings::DebugDouble = 0.0;
 unsigned int Settings::DebugUnsignedInt = 0;
 
@@ -173,6 +179,11 @@ void Settings::readUserInput(string filename) {
 			AnalyzeReconstructGrains = true;
 	}
 
+	//parse task specific options
+	if (0 != rootNode->first_node("WhichStrainTensors")) {
+		AddStrainTensorOpts = rootNode->first_node("WhichStrainTensors")->value();
+	}
+
 	if (0 != rootNode->first_node("GrainReconModel")) {
 		unsigned long what = static_cast<unsigned long>(stoul(rootNode->first_node("GrainReconModel")->value() ));
 		if ( what == E_HIERARCHICAL_CLUSTERING )
@@ -182,10 +193,12 @@ void Settings::readUserInput(string filename) {
 	}
 	if (0 != rootNode->first_node("SpatialDistrThrshldModel")) {
 		unsigned long what = static_cast<unsigned long>(stoul(rootNode->first_node("SpatialDistrThrshldModel")->value()));
-		if ( what == E_CLOSESTNBORIP_DISORIANGLE_THRESHOLD )
-			StateVarThrshldModel = E_CLOSESTNBORIP_DISORIANGLE_THRESHOLD;
-		if ( what == E_HIERARCHICALCOMMUNITY_SIGNEDDISTANCEFUNCTION )
-			StateVarThrshldModel = E_HIERARCHICALCOMMUNITY_SIGNEDDISTANCEFUNCTION;
+		if ( what == E_DISORIANGLE )
+			StateVarThrshldModel = E_DISORIANGLE;
+		if ( what == E_SIGNEDDISTANCEFUNCTION )
+			StateVarThrshldModel = E_SIGNEDDISTANCEFUNCTION;
+		if ( what == E_VORONOITESSELLATION )
+			StateVarThrshldModel = E_VORONOITESSELLATION;
 	}
 
 	if (0 != rootNode->first_node("ThrshldAgainstDefConfiguration")) {
@@ -269,6 +282,8 @@ void Settings::readUserInput(string filename) {
 	if (0 != rootNode->first_node("PVTessGuardZoneEdgeLen"))
 		PVTessGuardZoneEdgeLen = static_cast<unsigned int>(stoi(rootNode->first_node("PVTessGuardZoneEdgeLen")->value() ));
 
+	if (0 != rootNode->first_node("VoroTessContourGuardEdgeLen"))
+		VoroTessContourGuardEdgeLen = stod( rootNode->first_node("VoroTessContourGuardEdgeLen")->value() );
 
 //VISUALIZATION FILES WRITTEN OR NOT?
 	if (0 != rootNode->first_node("VisIPGridWithTextureID"))
@@ -296,6 +311,9 @@ void Settings::readUserInput(string filename) {
 //##MK::DEBUGGING and DEVELOPMENT OF NEW FUNCTIONALITY
 	if (0 != rootNode->first_node("VisGrainQuaternionClouds"))
 		VisGrainQuaternionClouds = static_cast<unsigned int>(stoi(rootNode->first_node("VisGrainQuaternionClouds")->value() ));
+
+	if (0 != rootNode->first_node("VisLOUVAINGraphEdges"))
+		VisLOUVAINGraphEdges = static_cast<unsigned int>(stoi(rootNode->first_node("VisLOUVAINGraphEdges")->value() ));
 
 	if (0 != rootNode->first_node("DebugDouble"))
 		DebugDouble = stod( rootNode->first_node("DebugDouble")->value() );
@@ -328,6 +346,7 @@ bool Settings::checkUserInput()
 	//###MK::during candidate inspection distances will be inspected in order of their distance
  	//if ( Settings::PhysicalDomainSize <= 0.0 ) return false;
 
+	/*
 	//contains file type specification?
 	string key (".");
 	if (SpectralOutFilename.find(key) != string::npos) { //contains an ending specifier, check if that reads as 'spectralOut'
@@ -337,6 +356,7 @@ bool Settings::checkUserInput()
 		string stripped = SpectralOutFilename.substr(0,SpectralOutFilename.size()-12);
 		SpectralOutFilename = stripped;
 	}
+	*/
 	//contains no file type specification leave it with this
 	return true;
 }
@@ -345,57 +365,60 @@ void Settings::displaySettings()
 {
 	//set precision of cout
 #ifdef SINGLE_PRECISION
-	cout << setprecision(9) << endl;
+	cout << setprecision(9) << "\n";
 #else
-	cout << setprecision(18) << endl;
+	cout << setprecision(18) << "\n";
 #endif
-	cout << Settings::SpectralOutFilename << endl;
+	cout << Settings::SpectralOutFilename << "\n";
 	cout << "Analyzing increments in [" << Settings::IncrementFirst << ", ";
-	cout << Settings::IncrementOffset << ", " << Settings::IncrementLast << "]" << endl;
+	cout << Settings::IncrementOffset << ", " << Settings::IncrementLast << "]" << "\n";
 
-	cout << "AnalysisID\t\t\t" << Settings::SimID << endl;
+	cout << "AnalysisID\t\t\t" << Settings::SimID << "\n";
 
-	cout << "KernelRadius\t\t\t" << Settings::KernelRadius << endl;
-	cout << "CriticalDisoriAngle\t\t" << RADIANT2DEGREE(Settings::CriticalDisoriAngle) << endl;
-	//cout << "GrainReconLocalDisoriAngle\t" << RADIANT2DEGREE(Settings::GrainReconLocalDisoriAngle) << endl;
-	//cout << "PhysDomainSize\t\t\t" << Settings::PhysicalDomainSize << endl;
+	cout << "KernelRadius\t\t\t" << Settings::KernelRadius << "\n";
+	cout << "CriticalDisoriAngle\t\t" << RADIANT2DEGREE(Settings::CriticalDisoriAngle) << "\n";
+	//cout << "GrainReconLocalDisoriAngle\t" << RADIANT2DEGREE(Settings::GrainReconLocalDisoriAngle) << "\n";
+	//cout << "PhysDomainSize\t\t\t" << Settings::PhysicalDomainSize << "\n";
 
-	cout << "The following tasks are planned:" << endl;
-		cout << "\t-->addFlowcurve" << endl;
+	cout << "The following tasks are planned:" << "\n";
+		cout << "\t-->addFlowcurve" << "\n";
 	if ( Settings::AnalyzeAddStrainTensors == true )
-		cout << "\t-->addStrainTensors" << endl;
+		cout << "\t-->addStrainTensors" << "\n";
 	if ( Settings::AnalyzeAddCauchy == true )
-		cout << "\t-->addCauchy" << endl;
+		cout << "\t-->addCauchy" << "\n";
 	if ( Settings::AnalyzeAddVonMises == true )
-		cout << "\t-->addVonMises" << endl;
+		cout << "\t-->addVonMises" << "\n";
 	if ( Settings::AnalyzeAddDisplacements == true)
-		cout << "\t-->addDisplacements" << endl;
+		cout << "\t-->addDisplacements" << "\n";
 	if ( Settings::AnalyzeStateVarSpatialDistr == true ) {
-		cout << "\t-->addAnalyzeStateVariableSpatialDistributions" << endl;
-		if ( Settings::StateVarThrshldModel == E_CLOSESTNBORIP_DISORIANGLE_THRESHOLD )
-			cout << "\t-->-->Closest neighboring unique ip with disori angle larger threshold" << endl;
-		if ( Settings::StateVarThrshldModel == E_HIERARCHICALCOMMUNITY_SIGNEDDISTANCEFUNCTION )
-			cout << "\t-->-->Hierarchical clustering-based grain detection with signed distance function" << endl;
+		cout << "\t-->addAnalyzeStateVariableSpatialDistributions" << "\n";
+		if ( Settings::StateVarThrshldModel == E_DISORIANGLE )
+			cout << "\t-->-->Closest neighboring unique ip with disori angle larger threshold" << "\n";
+		if ( Settings::StateVarThrshldModel == E_SIGNEDDISTANCEFUNCTION )
+			cout << "\t-->-->Grain reconstruction and signed distance function" << "\n";
+		if ( Settings::StateVarThrshldModel == E_VORONOITESSELLATION )
+			cout << "\t-->-->Grain reconstruction and Voronoi tessellation based contour hull" << "\n";
 		if ( Settings::ThrshldAgainstDefConfig == true)
-			cout << "\t-->-->Deformed configuration of integration point grid" << endl;
+			cout << "\t-->-->Deformed configuration of integration point grid" << "\n";
 		else
-			cout << "\t-->-->Initial configuration of integration point grid" << endl;
+			cout << "\t-->-->Initial configuration of integration point grid" << "\n";
 	}
 	if ( Settings::AnalyzeReconstructGrains == true ) {
-		cout << "\t-->Grain reconstruction" << endl;
-		cout << "\t-->-->Modularity-based community detection" << endl;
-		cout << "\t-->-->DisoriAngleWeightingFactor " << Settings::CommDetectionDisoriAngleWght << endl;
-		//cout << "\t-->-->DistanceWeightingFactor " << Settings::CommDetectionDistanceWght << endl; //##MK::currently disabled
+		cout << "\t-->Grain reconstruction" << "\n";
+		cout << "\t-->-->Modularity-based community detection" << "\n";
+		cout << "\t-->-->DisoriAngleWeightingFactor " << Settings::CommDetectionDisoriAngleWght << "\n";
+		//cout << "\t-->-->DistanceWeightingFactor " << Settings::CommDetectionDistanceWght << "\n"; //##MK::currently disabled
 
-		//cout << "\t-->-->LocalDisoriAngle " << RADIANT2DEGREE(Settings::GrainReconLocalDisoriAngle) << endl;
-		cout << "\t-->-->InspectionRadius " << Settings::GrainReconInspectionRadius << endl;
-		cout << "\t-->-->LouvainPrecision " << Settings::GrainReconLouvainPrecision << endl;
-		cout << "\t-->-->DBScanPerImageRadius " << Settings::DBScanKernelRadius << endl;
+		//cout << "\t-->-->LocalDisoriAngle " << RADIANT2DEGREE(Settings::GrainReconLocalDisoriAngle) << "\n";
+		cout << "\t-->-->InspectionRadius " << Settings::GrainReconInspectionRadius << "\n";
+		cout << "\t-->-->LouvainPrecision " << Settings::GrainReconLouvainPrecision << "\n";
+		cout << "\t-->-->DBScanPerImageRadius " << Settings::DBScanKernelRadius << "\n";
 
-		cout << "\t-->Voxelization prior to signed-distance function computation" << endl;
-		cout << "\t-->-->PVCubeVoxelEdgeLenght " << Settings::PVTessCubeVoxelEdgeLen << endl;
-		cout << "\t-->-->PVTessKernelRadius " << Settings::PVTessKernelRadius << endl;
-		cout << "\t-->-->PVTessGuardZone " << Settings::PVTessGuardZoneEdgeLen << " voxel" << endl;
+		cout << "\t-->Voxelization prior to signed-distance function computation" << "\n";
+		cout << "\t-->-->PVCubeVoxelEdgeLength " << Settings::PVTessCubeVoxelEdgeLen << "\n";
+		cout << "\t-->-->PVTessKernelRadius " << Settings::PVTessKernelRadius << "\n";
+		cout << "\t-->-->PVTessGuardZone " << Settings::PVTessGuardZoneEdgeLen << " voxel" << "\n";
+		cout << "\t-->-->VoroTessGuardLength " << Settings::VoroTessContourGuardEdgeLen << "\n";
 		//##MK::add further parameter
 	}
 
@@ -411,13 +434,13 @@ unsigned int RangeLimits::NXYZMax = 1024*1024*1024;
 void RangeLimits::displaySettings()
 {
 #ifdef SINGLE_PRECISION
-	cout << setprecision(9) << endl;
+	cout << setprecision(9) << "\n";
 #else
-	cout << setprecision(18) << endl;
+	cout << setprecision(18) << "\n";
 #endif
 
-	cout << "DummyID\t\t\t\t" << RangeLimits::DummyID << endl;
-	cout << "UIntMax\t\t\t\t" << RangeLimits::UIntMax << endl;
-	cout << "NXYZMax\t\t\t\t" << RangeLimits::NXYZMax << endl;
+	cout << "DummyID\t\t\t\t" << RangeLimits::DummyID << "\n";
+	cout << "UIntMax\t\t\t\t" << RangeLimits::UIntMax << "\n";
+	cout << "NXYZMax\t\t\t\t" << RangeLimits::NXYZMax << "\n";
 }
 

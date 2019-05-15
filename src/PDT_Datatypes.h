@@ -46,7 +46,7 @@
 
 struct dbcontrol
 {
-	unsigned short label;
+	unsigned short label; //##MK::short suffices here because only periodic images of a grain in RVE27
 	bool visited;
 	dbcontrol() : label(numeric_limits<unsigned short>::max()), visited(false) {}
 	dbcontrol(const unsigned short _lbl, const bool _seen) :
@@ -288,6 +288,7 @@ struct sqb
 	sqb() : nx(1), ny(1), nz(1), nxy(1), nxyz(1) {}
 	sqb(const unsigned int _nx, const unsigned int _ny, const unsigned int _nz) :
 		nx(_nx), ny(_ny), nz(_nz), nxy(_nx*_ny), nxyz(_nx*_ny*_nz) {}
+	unsigned int where( const unsigned int _xx, const unsigned int _yy, const unsigned int _zz );
 	~sqb(){}
 };
 
@@ -446,5 +447,156 @@ struct sbvhrange
 };
 
 std::ostream& operator << (std::ostream& in, sbvhrange const & val);
+
+struct whenTaken
+{
+	//pieces of meta information specifying when a certain spectralOut result was taken
+	unsigned int loadcaseID;	//in which loadcase
+	unsigned int localincrID;	//which increment of this loadcase
+	unsigned int globalincrID;	//which increment given that there are potentially multiple loadcases
+	whenTaken() : loadcaseID(0), localincrID(0), globalincrID(0) {}
+	whenTaken(const unsigned int _lcid, const unsigned int _liid, const unsigned int _giid) :
+		loadcaseID(_lcid), localincrID(_liid), globalincrID(_giid) {}
+};
+
+std::ostream& operator << (std::ostream& in, whenTaken const & val);
+
+
+struct voro_p3d
+{
+	voro_real x;
+	voro_real y;
+	voro_real z;
+	voro_p3d() : x(0.0), y(0.0), z(0.0) {}
+	voro_p3d(const voro_real _x, const voro_real _y, const voro_real _z ) :
+		x(_x), y(_y), z(_z) {}
+	void normalize();
+
+	voro_p3d & operator += (voro_p3d const & rhs) & {
+	    x += rhs.x;
+	    y += rhs.y;
+	    z += rhs.z;
+	    return *this;
+	}
+	voro_p3d & operator -= (voro_p3d const & rhs ) & {
+		x -= rhs.x;
+		y -= rhs.y;
+		z -= rhs.z;
+		return *this;
+	}
+};
+
+voro_real dot( voro_p3d const & a, voro_p3d const & b );
+voro_p3d cross( voro_p3d const & a, voro_p3d const & b );
+
+
+ostream& operator<<(ostream& in, voro_p3d const & val);
+
+
+struct voro_p3dm1
+{
+	voro_real x;
+	voro_real y;
+	voro_real z;
+	voro_uint m;
+	voro_p3dm1() : x(0.0), y(0.0), z(0.0), m(VOROUINTXX) {}
+	voro_p3dm1(const voro_real _x, const voro_real _y, const voro_real _z, const voro_uint _m ) :
+		x(_x), y(_y), z(_z), m(_m) {}
+};
+
+ostream& operator<<(ostream& in, voro_p3dm1 const & val);
+
+
+struct voro_p3dm2
+{
+	voro_real x;
+	voro_real y;
+	voro_real z;
+	voro_uint m1;	//grainID
+	voro_uint m2; 	//unique material point ID in RVE1
+	voro_p3dm2() : x(0.0), y(0.0), z(0.0), m1(VOROUINTXX), m2(VOROUINTXX) {}
+	voro_p3dm2(const voro_real _x, const voro_real _y, const voro_real _z,
+			const voro_uint _m1, const voro_uint _m2 ) :
+		x(_x), y(_y), z(_z), m1(_m1), m2(_m2) {}
+};
+
+ostream& operator<<(ostream& in, voro_p3dm2 const & val);
+
+
+
+
+struct voro_p3i
+{
+	voro_int x;
+	voro_int y;
+	voro_int z;
+
+	voro_p3i() : x(0), y(0), z(0) {}
+	voro_p3i(const voro_int _x, const voro_int _y, const voro_int _z) :
+		x(_x), y(_y), z(_z) {}
+};
+
+
+ostream& operator<<(ostream& in, voro_p3i const & val);
+
+
+struct voro_tri3d
+{
+	voro_real x1;
+	voro_real y1;
+	voro_real z1;
+
+	voro_real x2;
+	voro_real y2;
+	voro_real z2;
+
+	voro_real x3;
+	voro_real y3;
+	voro_real z3;
+	voro_tri3d() : 	x1(VOROZERO), y1(VOROZERO), z1(VOROZERO),
+					x2(VOROZERO), y2(VOROZERO), z2(VOROZERO),
+					x3(VOROZERO), y3(VOROZERO), z3(VOROZERO) {}
+	voro_tri3d( const voro_real _x1, const voro_real _y1, const voro_real _z1,
+		const voro_real _x2, const voro_real _y2, const voro_real _z2,
+		const voro_real _x3, const voro_real _y3, const voro_real _z3 ) :
+		x1(_x1), y1(_y1), z1(_z1),
+		x2(_x2), y2(_y2), z2(_z2),
+		x3(_x3), y3(_y3), z3(_z3) {}
+	inline voro_p3d barycenter();
+};
+
+
+ostream& operator<<(ostream& in, voro_tri3d const & val);
+
+
+struct voro_aabb3d
+{
+	voro_real xmi;
+	voro_real xmx;
+	voro_real ymi;
+	voro_real ymx;
+	voro_real zmi;
+	voro_real zmx;
+
+	voro_aabb3d() :
+		xmi(VOROFMX), xmx(VOROFMI), ymi(VOROFMX), ymx(VOROFMI), zmi(VOROFMX), zmx(VOROFMI) {}
+	voro_aabb3d( 	const voro_real _xmi, const voro_real _xmx,
+					const voro_real _ymi, const voro_real _ymx,
+					const voro_real _zmi, const voro_real _zmx) :
+		xmi(_xmi), xmx(_xmx), ymi(_ymi), ymx(_ymx), zmi(_zmi), zmx(_zmx) {}
+
+	void add_epsilon_guard( const voro_real eps );
+	bool inside( voro_p3dm1 const & test );
+	bool inside( voro_p3d const & test );
+	void possibly_enlarge_me( voro_p3dm1 const & test );
+	void possibly_enlarge_me( voro_p3d const & test );
+	voro_p3d boxcenter( void );
+
+	voro_p3i blockpartitioning( const voro_uint p_total, const voro_uint p_perblock_target );
+};
+
+ostream& operator<<(ostream& in, voro_aabb3d const & val);
+
+
 
 #endif

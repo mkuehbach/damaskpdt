@@ -60,11 +60,17 @@ bool svd(t3x3 const &in, t3x3 &U, t3x1 &S, t3x3 &Vh)
 	Vh = zerot3x3();
 
 #ifndef INTELMKL_EXISTENT
-	cout << "IntelMKL commands were not compiled into the source code!" << endl;
+	#pragma omp critical
+	{
+		cerr << "IntelMKL commands were not compiled into the source code!" << "\n";
+	}
 	return false;
 #else
 	#ifdef SINGLE_PRECISION
-		cout << "MKL SVD for single precision is not yet implemented!" << endl;
+		#pragma omp critical
+		{
+			cerr << "MKL SVD for single precision is not yet implemented!" << "\n";
+		}
 		return false;
 	#else
 		int m = 3, n = 3, lda = 3, ldu = 3, ldvt = 3, info, lwork;
@@ -77,7 +83,7 @@ bool svd(t3x3 const &in, t3x3 &U, t3x1 &S, t3x3 &Vh)
 		a[3]= static_cast<double>(in.a21);	a[4]= static_cast<double>(in.a22); 	a[5] = static_cast<double>(in.a23);
 		a[6]= static_cast<double>(in.a31);	a[7]= static_cast<double>(in.a32); 	a[8] = static_cast<double>(in.a33);
 
-	//cout << "DGESVD Example Program Results" << endl;
+	//cout << "DGESVD Example Program Results" << "\n";
 
 		//query and allocate the optimal workspace
 		lwork = -1;
@@ -89,7 +95,10 @@ bool svd(t3x3 const &in, t3x3 &U, t3x1 &S, t3x3 &Vh)
 				work = new double[lwork*sizeof(double)];
 			}
 			catch (bad_alloc &croak) {
-				cout << "MKL SVD allocation of working array failed" << endl;
+				#pragma omp critical
+				{
+					cerr << "MKL SVD allocation of working array failed" << "\n";
+				}
 				return false;
 			}
 
@@ -98,7 +107,7 @@ bool svd(t3x3 const &in, t3x3 &U, t3x1 &S, t3x3 &Vh)
 			if ( info == 0 ) { //most likely
 				/*
 				//##MK::DEBUG
-				cout << "MKL SVD converged" << endl;
+				cout << "MKL SVD converged" << "\n";
 				*/
 
 				//U stored column-wise by MKL
@@ -118,31 +127,37 @@ bool svd(t3x3 const &in, t3x3 &U, t3x1 &S, t3x3 &Vh)
 
 				/*
 				//##MK::DEBUG
-				cout << "U" << endl;
-				cout << U.a11 << "," << U.a12 << "," << U.a13 << endl;
-				cout << U.a21 << "," << U.a22 << "," << U.a23 << endl;
-				cout << U.a31 << "," << U.a32 << "," << U.a33 << endl;
+				cout << "U" << "\n";
+				cout << U.a11 << "," << U.a12 << "," << U.a13 << "\n";
+				cout << U.a21 << "," << U.a22 << "," << U.a23 << "\n";
+				cout << U.a31 << "," << U.a32 << "," << U.a33 << "\n";
 
-				cout << "S" << endl;
-				cout << S.a11 << "," << S.a21 << "," << S.a31 << endl;
+				cout << "S" << "\n";
+				cout << S.a11 << "," << S.a21 << "," << S.a31 << "\n";
 
-				cout << "Vh" << endl;
-				cout << Vh.a11 << "," << Vh.a12 << "," << Vh.a13 << endl;
-				cout << Vh.a21 << "," << Vh.a22 << "," << Vh.a23 << endl;
-				cout << Vh.a31 << "," << Vh.a32 << "," << Vh.a33 << endl;
+				cout << "Vh" << "\n";
+				cout << Vh.a11 << "," << Vh.a12 << "," << Vh.a13 << "\n";
+				cout << Vh.a21 << "," << Vh.a22 << "," << Vh.a23 << "\n";
+				cout << Vh.a31 << "," << Vh.a32 << "," << Vh.a33 << "\n";
 				*/
 
 				delete [] work;
 				return true; //successful
 			}
 			else {
-				cout << "MKL SVD did not converge!" << endl;
+				#pragma omp critical
+				{
+					cerr << "MKL SVD did not converge!" << "\n";
+				}
 				delete [] work;
 				return false;
 			}
 		}
 		else { //workspace allocation failed
-			cout << "MKL SVD working array size determination failed" << endl;
+			#pragma omp critical
+			{
+				cout << "MKL SVD working array size determination failed" << "\n";
+			}
 			return false;
 		}
 	#endif
@@ -157,12 +172,17 @@ bool inv(t3x3 const &in, t3x3 &out)
 	out = zerot3x3();
 
 #ifndef INTELMKL_EXISTENT
-	cout << "IntelMKL commands were not compiled into the source code!" << endl;
+	#pragma omp critical
+	{
+		cerr << "IntelMKL commands were not compiled into the source code!" << "\n";
+	}
 	return false;
 #else
 	#ifdef SINGLE_PRECISION
-		//##MK::not yet implemented
-		cout << "MKL INV for single precision is not yet implemented!" << endl;
+		#pragma omp critical
+		{//##MK::not yet implemented
+			cerr << "MKL INV for single precision is not yet implemented!" << "\n";
+		}
 		return false;
 	#else
 
@@ -174,10 +194,10 @@ bool inv(t3x3 const &in, t3x3 &out)
 
 		/*
 		//##MK::DEBUG
-		cout << "Original" << endl;
-		cout << A[0] << "," << A[1] << "," << A[2] << endl;
-		cout << A[3] << "," << A[4] << "," << A[5] << endl;
-		cout << A[6] << "," << A[7] << "," << A[8] << endl;
+		cout << "Original" << "\n";
+		cout << A[0] << "," << A[1] << "," << A[2] << "\n";
+		cout << A[3] << "," << A[4] << "," << A[5] << "\n";
+		cout << A[6] << "," << A[7] << "," << A[8] << "\n";
 		*/
 
 		int info;
@@ -187,7 +207,10 @@ bool inv(t3x3 const &in, t3x3 &out)
 			ipiv = new int[SIZE]; //##MK::needs to be pointer?
 		}
 		catch (bad_alloc &croak) {
-			cout << "MKL INV allocation of ipiv array failing";
+			#pragma omp critical
+			{
+				cerr << "MKL INV allocation of ipiv array failing" << "\n";
+			}
 			return false;
 		}
 
@@ -201,7 +224,7 @@ bool inv(t3x3 const &in, t3x3 &out)
 				wsp = new double[lwsp*sizeof(double)];
 			}
 			catch (bad_alloc &croak) {
-				cout << "MKL INV allocation of workspace array failing" << endl;
+				cout << "MKL INV allocation of workspace array failing" << "\n";
 				return false;
 			}
 
@@ -211,10 +234,10 @@ bool inv(t3x3 const &in, t3x3 &out)
 			if ( info == 0 ) { //inversion was successful
 				/*
 				//##MK::DEBUG
-				cout << "Inverse" << endl;
-				cout << A[0] << "," << A[1] << "," << A[2] << endl;
-				cout << A[3] << "," << A[4] << "," << A[5] << endl;
-				cout << A[6] << "," << A[7] << "," << A[8] << endl;
+				cout << "Inverse" << "\n";
+				cout << A[0] << "," << A[1] << "," << A[2] << "\n";
+				cout << A[3] << "," << A[4] << "," << A[5] << "\n";
+				cout << A[6] << "," << A[7] << "," << A[8] << "\n";
 				*/
 
 				delete [] ipiv;
@@ -227,14 +250,20 @@ bool inv(t3x3 const &in, t3x3 &out)
 				return true;
 			}
 			else {
-				cout << "MKL INV inversion dgetri did not converge" << endl;
+				#pragma omp critical
+				{
+					cerr << "MKL INV inversion dgetri did not converge" << "\n";
+				}
 				delete [] ipiv;
 				delete [] wsp;
 				return false;
 			}
 		}
 		else {
-			cout << "MKL INV dgetrf did not converge" << endl;
+			#pragma omp critical
+			{
+				cerr << "MKL INV dgetrf did not converge" << "\n";
+			}
 			delete [] ipiv;
 			return false;
 		}
@@ -252,12 +281,18 @@ bool eig(t3x3 const &in, t3x1 &e_real, t3x1 &e_img, t3x3 &evr_real, t3x3 &evr_im
 	evr_img = zerot3x3();
 
 #ifndef INTELMKL_EXISTENT
-	cout << "IntelMKL commands were not compiled into the source code!" << endl;
+	#pragma omp critical
+	{
+		cerr << "IntelMKL commands were not compiled into the source code!" << "\n";
+	}
 	return false;
 #else
 	#ifdef SINGLE_PRECISION
 		//##MK::not yet implemented
-		cout << "MKL EIG for single precision is not yet implemented!" << endl;
+		#pragma omp critical
+		{
+			cerr << "MKL EIG for single precision is not yet implemented!" << "\n";
+		}
 		return false;
 	#else
 		MKL_INT n = 3, lda = 3, ldvl = 3, ldvr = 3, info;
@@ -270,11 +305,11 @@ bool eig(t3x3 const &in, t3x1 &e_real, t3x1 &e_img, t3x3 &evr_real, t3x3 &evr_im
 
 		/*
 		//##MK::DEBUG
-		cout << "in original" << endl;
-		cout << a[0] << "," << a[1] << "," << a[2] << endl;
-		cout << a[3] << "," << a[4] << "," << a[5] << endl;
-		cout << a[6] << "," << a[7] << "," << a[8] << endl;
-		cout << "LAPACKE_dgeev (row-major, high-level) Example Program Results" << endl;
+		cout << "in original" << "\n";
+		cout << a[0] << "," << a[1] << "," << a[2] << "\n";
+		cout << a[3] << "," << a[4] << "," << a[5] << "\n";
+		cout << a[6] << "," << a[7] << "," << a[8] << "\n";
+		cout << "LAPACKE_dgeev (row-major, high-level) Example Program Results" << "\n";
 		*/
 
 		//solve eigen problem
@@ -287,10 +322,10 @@ bool eig(t3x3 const &in, t3x1 &e_real, t3x1 &e_img, t3x3 &evr_real, t3x3 &evr_im
 
 			/*
 			//##MK::DEBUG
-			cout << "three complex eigenvalues" << endl;
-			cout << wr[0] << " / " << wi[0] << endl;
-			cout << wr[1] << " / " << wi[1] << endl;
-			cout << wr[2] << " / " << wi[2] << endl;
+			cout << "three complex eigenvalues" << "\n";
+			cout << wr[0] << " / " << wi[0] << "\n";
+			cout << wr[1] << " / " << wi[1] << "\n";
+			cout << wr[2] << " / " << wi[2] << "\n";
 			*/
 
 			//unroll for loop to get eigenvalues for (MKL_INT i = 0; i < n; ++i) { //only possible either all eigenvector real then three reals or one real and one complex conjugate pair
@@ -304,7 +339,11 @@ bool eig(t3x3 const &in, t3x1 &e_real, t3x1 &e_img, t3x3 &evr_real, t3x3 &evr_im
 						evr_real.a13 = static_cast<real_m33>(vr[i*ldvr+j]); evr_img.a13 = static_cast<real_m33>(0.0);
 					}
 					else {
-						return false; 	//cout << "After two real, eigenvalue inconsistent" << endl;
+						#pragma omp critical
+						{
+							cerr << "After two real, eigenvalue inconsistent" << "\n";
+						}
+						return false;
 					}
 				}
 				else { //...if not it is the complex conjugate pair
@@ -319,7 +358,11 @@ bool eig(t3x3 const &in, t3x1 &e_real, t3x1 &e_img, t3x3 &evr_real, t3x3 &evr_im
 					evr_real.a13 = static_cast<real_m33>(vr[i*ldvr+j]); evr_img.a13 = static_cast<real_m33>(0.0);			j++;
 				}
 				else {
-					return false; //cout << "After conjugate pair, third eigenvalue inconsistent" << endl;
+					#pragma omp critical
+					{
+						cerr << "After conjugate pair, third eigenvalue inconsistent" << "\n";
+					}
+					return false;
 				}
 			}
 			i = 1;
@@ -332,7 +375,11 @@ bool eig(t3x3 const &in, t3x1 &e_real, t3x1 &e_img, t3x3 &evr_real, t3x3 &evr_im
 						evr_real.a23 = static_cast<real_m33>(vr[i*ldvr+j]); evr_img.a23 = static_cast<real_m33>(0.0);	//j++;
 					}
 					else {
-						return false; //cout << "After two real, eigenvalue inconsistent" << endl;
+						#pragma omp critical
+						{
+							cerr << "After two real, eigenvalue inconsistent" << "\n";
+						}
+						return false;
 					}
 				}
 				else { //...if not it is the complex conjugate pair
@@ -347,7 +394,11 @@ bool eig(t3x3 const &in, t3x1 &e_real, t3x1 &e_img, t3x3 &evr_real, t3x3 &evr_im
 					evr_real.a23 = static_cast<real_m33>(vr[i*ldvr+j]); evr_img.a23 = static_cast<real_m33>(0.0);			j++;
 				}
 				else {
-					return false; //cout << "After conjugate pair, third eigenvalue inconsistent" << endl;
+					#pragma omp critical
+					{
+						cerr << "After conjugate pair, third eigenvalue inconsistent" << "\n";
+					}
+					return false;
 				}
 			}
 			i = 2;
@@ -360,7 +411,11 @@ bool eig(t3x3 const &in, t3x1 &e_real, t3x1 &e_img, t3x3 &evr_real, t3x3 &evr_im
 						evr_real.a33 = static_cast<real_m33>(vr[i*ldvr+j]); evr_img.a33 = static_cast<real_m33>(0.0);	//j++;
 					}
 					else {
-						return false; //cout << "After two real, eigenvalue inconsistent" << endl;
+						#pragma omp critical
+						{
+							cerr << "After conjugate pair, third eigenvalue inconsistent" << "\n";
+						}
+						return false;
 					}
 				}
 				else { //...if not it is the complex conjugate pair
@@ -375,32 +430,39 @@ bool eig(t3x3 const &in, t3x1 &e_real, t3x1 &e_img, t3x3 &evr_real, t3x3 &evr_im
 					evr_real.a33 = static_cast<real_m33>(vr[i*ldvr+j]); evr_img.a33 = static_cast<real_m33>(0.0);			j++;
 				}
 				else {
-					return false; //cout << "After conjugate pair, third eigenvalue inconsistent" << endl;
+					#pragma omp critical
+					{
+						cerr << "After conjugate pair, third eigenvalue inconsistent" << "\n";
+					}
+					return false; //cout << "After conjugate pair, third eigenvalue inconsistent" << "\n";
 				}
 			}
 
 			//##MK::DEBUG
 			/*
-			cout << "three right-handed eigenvector" << endl;
+			cout << "three right-handed eigenvector" << "\n";
 			//##order of these?
-			cout << "first complex column vector" << endl;
-			cout << evr_real.a11 << " / " << evr_img.a11 << endl;
-			cout << evr_real.a21 << " / " << evr_img.a21 << endl;
-			cout << evr_real.a31 << " / " << evr_img.a31 << endl;
-			cout << "second complex column vector" << endl;
-			cout << evr_real.a12 << " / " << evr_img.a12 << endl;
-			cout << evr_real.a22 << " / " << evr_img.a22 << endl;
-			cout << evr_real.a32 << " / " << evr_img.a32 << endl;
-			cout << "third complex column vector" << endl;
-			cout << evr_real.a13 << " / " << evr_img.a13 << endl;
-			cout << evr_real.a23 << " / " << evr_img.a23 << endl;
-			cout << evr_real.a33 << " / " << evr_img.a33 << endl;
+			cout << "first complex column vector" << "\n";
+			cout << evr_real.a11 << " / " << evr_img.a11 << "\n";
+			cout << evr_real.a21 << " / " << evr_img.a21 << "\n";
+			cout << evr_real.a31 << " / " << evr_img.a31 << "\n";
+			cout << "second complex column vector" << "\n";
+			cout << evr_real.a12 << " / " << evr_img.a12 << "\n";
+			cout << evr_real.a22 << " / " << evr_img.a22 << "\n";
+			cout << evr_real.a32 << " / " << evr_img.a32 << "\n";
+			cout << "third complex column vector" << "\n";
+			cout << evr_real.a13 << " / " << evr_img.a13 << "\n";
+			cout << evr_real.a23 << " / " << evr_img.a23 << "\n";
+			cout << evr_real.a33 << " / " << evr_img.a33 << "\n";
 			*/
 			return true;
 
 		}
 		else { //not converged
-			cout << "MKL EIG dgeev did not converge" << endl;
+			#pragma omp critical
+			{
+				cerr << "MKL EIG dgeev did not converge" << "\n";
+			}
 			return false;
 		}
 	#endif
@@ -412,7 +474,7 @@ bool eig(t3x3 const &in, t3x1 &e_real, t3x1 &e_img, t3x3 &evr_real, t3x3 &evr_im
 bool computeStrainTensor( t3x3 const & in, t3x3 &eps)
 {
 #ifndef INTELMKL_EXISTENT
-	cout << "IntelMKL commands were not compiled into the source code!" << endl;
+	cout << "IntelMKL commands were not compiled into the source code!" << "\n";
 	eps = failt3x3();
 	return false;
 #else
@@ -449,26 +511,26 @@ bool computeStrainTensor( t3x3 const & in, t3x3 &eps)
 
 			if ( eig( stretchV, Dr, Di, Vr, Vi) == true ) {
 			//if ( eig( stretchU, Dr, Di, Vr, Vi) == true ) {
-//cout << "Eigendecomposition of stretchU was successful!" << endl;
-cout << "Eigendecomposition of stretchV was successful!" << endl;
+//cout << "Eigendecomposition of stretchU was successful!" << "\n";
+cout << "Eigendecomposition of stretchV was successful!" << "\n";
 
 				//flip eigenvalue and eigenvector in case of negative (real part ##MK::is this sufficent?)eigenvalues
 				if ( Dr.a11 <= 0.0 ) {
-					//cout << "Flipping 1. negative eigenvalue/-vector positive" << endl;
+					//cout << "Flipping 1. negative eigenvalue/-vector positive" << "\n";
 					Dr.a11 *= -1.0;		Di.a11 *= -1.0;
 					Vr.a11 *= -1.0;		Vi.a11 *= -1.0; //matrix V contains the three column eigenvectors
 					Vr.a21 *= -1.0;		Vi.a21 *= -1.0;
 					Vr.a31 *= -1.0;		Vi.a31 *= -1.0;
 				}
 				if ( Dr.a21 <= 0.0 ) {
-					//cout << "Flipping 2. negative eigenvalue/-vector positive" << endl;
+					//cout << "Flipping 2. negative eigenvalue/-vector positive" << "\n";
 					Dr.a21 *= -1.0;		Di.a21 *= -1.0;
 					Vr.a12 *= -1.0;		Vi.a12 *= -1.0; //matrix V contains the three column eigenvectors
 					Vr.a22 *= -1.0;		Vi.a22 *= -1.0;
 					Vr.a32 *= -1.0;		Vi.a32 *= -1.0;
 				}
 				if ( Dr.a31 <= 0.0 ) {
-					//cout << "Flipping 3. negative eigenvalue/-vector positive" << endl;
+					//cout << "Flipping 3. negative eigenvalue/-vector positive" << "\n";
 					Dr.a31 *= -1.0;		Di.a31 *= -1.0;
 					Vr.a13 *= -1.0;		Vi.a13 *= -1.0; //matrix V contains the three column eigenvectors
 					Vr.a23 *= -1.0;		Vi.a23 *= -1.0;
@@ -477,7 +539,7 @@ cout << "Eigendecomposition of stretchV was successful!" << endl;
 
 				//check for orthogonality
 				//##MK::
-cout << "##MK::add IntelMKL addStrainTensors add orthogonality check" << endl;
+cout << "##MK::add IntelMKL addStrainTensors add orthogonality check" << "\n";
 
 				//##MK::implement various cases which reference (V,U based) and flavor (ln,Biot,Green)
 				//U#ln
@@ -497,19 +559,19 @@ cout << "##MK::add IntelMKL addStrainTensors add orthogonality check" << endl;
 				return true;
 			}
 			else {
-cout << "Inversion of stretchU or V failed" << endl;
+cout << "Inversion of stretchU or V failed" << "\n";
 				eps = zerot3x3();
 				return false;
 			}
 		}
 		else {
-cout << "MKL addStrainTensor R inversion failed" << endl;
+cout << "MKL addStrainTensor R inversion failed" << "\n";
 			eps = zerot3x3();
 			return false;
 		}
 	}
 	else {
-cout << "MKL addStrainTensor singular value decomposition of input failed" << endl;
+cout << "MKL addStrainTensor singular value decomposition of input failed" << "\n";
 		eps = zerot3x3();
 		return false;
 	}
@@ -519,11 +581,119 @@ cout << "MKL addStrainTensor singular value decomposition of input failed" << en
 
 //##MK::heavily annotated for debugging
 //#define VERBOSE_ADDSTRAINTENSOR
+bool computeEigDecompStretch2Strain( t3x3 const & in, const unsigned int kind, t3x3 & out)
+{
+	//eigen decomposition of stretch tensor in
+	t3x1 Dr = t3x1(); 	//real part of eigenvalues
+	t3x1 Di = t3x1();	//imaginary part
+	t3x3 Vr = t3x3();	//real part of eigenvectors
+	t3x3 Vi = t3x3();	//imaginary part
 
-bool computeStrainTensor( t3x3 const & in, t3x3 &eps)
+	if ( eig( in, Dr, Di, Vr, Vi) == true ) {
+#ifdef VERBOSE_ADDSTRAINTENSOR
+cout << "Dr" << Dr << "\n";
+cout << "Vr" << Vr << "\n";
+cout << "Eigendecomposition of stretch was successful!" << "\n";
+#endif
+
+		//flip eigenvalue and eigenvector in case of negative (real part ##MK::is this sufficent?)eigenvalues
+		if ( Dr.a11 <= 0.0 ) {
+			//cout << "Flipping 1. negative eigenvalue/-vector positive" << "\n";
+			Dr.a11 *= -1.0;		Di.a11 *= -1.0;
+			Vr.a11 *= -1.0;		Vi.a11 *= -1.0; //matrix V contains the three column eigenvectors
+			Vr.a21 *= -1.0;		Vi.a21 *= -1.0;
+			Vr.a31 *= -1.0;		Vi.a31 *= -1.0;
+		}
+		if ( Dr.a21 <= 0.0 ) {
+			//cout << "Flipping 2. negative eigenvalue/-vector positive" << "\n";
+			Dr.a21 *= -1.0;		Di.a21 *= -1.0;
+			Vr.a12 *= -1.0;		Vi.a12 *= -1.0; //matrix V contains the three column eigenvectors
+			Vr.a22 *= -1.0;		Vi.a22 *= -1.0;
+			Vr.a32 *= -1.0;		Vi.a32 *= -1.0;
+		}
+		if ( Dr.a31 <= 0.0 ) {
+			//cout << "Flipping 3. negative eigenvalue/-vector positive" << "\n";
+			Dr.a31 *= -1.0;		Di.a31 *= -1.0;
+			Vr.a13 *= -1.0;		Vi.a13 *= -1.0; //matrix V contains the three column eigenvectors
+			Vr.a23 *= -1.0;		Vi.a23 *= -1.0;
+			Vr.a33 *= -1.0;		Vi.a33 *= -1.0;
+		}
+#ifdef VERBOSE_ADDSTRAINTENSOR
+cout << "Dr" << Dr << "\n";
+cout << "Vr" << Vr << "\n";
+#endif
+
+		//check for orthogonality
+		//##MK::
+#ifdef VERBOSE_ADDSTRAINTENSOR
+cout << "##MK::add IntelMKL addStrainTensors add orthogonality check" << "\n";
+#endif
+
+		//##MK::implement rest of the possible kinds (Biot)
+		switch (kind) {
+			case LNSTRAIN:
+				//V#ln
+				//U#ln
+				Dr.a11 = log(Dr.a11);
+				Dr.a21 = log(Dr.a21);
+				Dr.a31 = log(Dr.a31);
+				break;
+			//##MK::add BIOTSTRAIN
+			case GREENSTRAIN:
+				//U#Green
+				//##MK:: but not ! V#Green !
+				Dr.a11 = (SQR(Dr.a11) - 1.0) * 0.5;
+				Dr.a21 = (SQR(Dr.a21) - 1.0) * 0.5;
+				Dr.a31 = (SQR(Dr.a31) - 1.0) * 0.5;
+				break;
+			default:
+				out = zerot3x3();
+				return false;
+		}
+
+#ifdef VERBOSE_ADDSTRAINTENSOR
+cout << "lnDr" << Dr << "\n";
+#endif
+		t3x3 dia = diag(Dr);
+
+#ifdef VERBOSE_ADDSTRAINTENSOR
+cout << "diag lnDr" << dia << "\n";
+#endif
+
+		t3x3 Vtrsp = transpose(Vr);
+
+#ifdef VERBOSE_ADDSTRAINTENSOR
+cout << "Vtrsp " << Vtrsp << "\n";
+#endif
+
+		//eps = (np.dot(V,np.dot(np.diag(d),V.T)).real).reshape(9)
+		t3x3 tmp = dot(dia, Vtrsp);
+
+#ifdef VERBOSE_ADDSTRAINTENSOR
+cout << "dot(dia,Vtrsp) " << tmp << "\n";
+#endif
+
+		//report strain tensor
+		out = dot(Vr,tmp);
+		return true;
+	}
+	else {
+#ifdef VERBOSE_ADDSTRAINTENSOR
+cout << "Eigendecomposition of stretch failed!" << "\n";
+#endif
+		out = zerot3x3();
+		return false;
+	}
+}
+
+
+bool computeStrainTensor( t3x3 const & in, t3x3 & eps)
 {
 #ifndef INTELMKL_EXISTENT
-	cout << "IntelMKL commands were not compiled into the source code!" << endl;
+	#pragma omp critical
+	{
+		cerr << "IntelMKL commands were not compiled into the source code!" << "\n";
+	}
 	eps = failt3x3();
 	return false;
 #else
@@ -533,49 +703,37 @@ bool computeStrainTensor( t3x3 const & in, t3x3 &eps)
 	t3x3 Vh = t3x3();
 
 	if ( svd(in, U, S, Vh) == true ) {
-#ifdef VERBOSE_ADDSTRAINTENSOR
-cout << "U" << U << endl;
-cout << "S" << S << endl;
-cout << "Vh" << Vh << endl;
-#endif
-
-		t3x3 Uwork = Vh; //##MK::why return U and Vh switched ?? order different than in python call np.linalg.svd(F) = [U,S,Vh]
-		t3x3 Vhwork = U;
-
 		//get rotation of polar decomposition
-		t3x3 R = dot(Uwork,Vhwork);
+		t3x3 R = dot(U,Vh);
 
 #ifdef VERBOSE_ADDSTRAINTENSOR
-cout << "U" << Uwork << endl;
-cout << "S" << S << endl;
-cout << "Vh" << Vhwork << endl;
-cout << "R" << R << endl;
+cout << "U" << U << "\n";
+cout << "S" << S << "\n";
+cout << "Vh" << Vh << "\n";
+cout << "R" << R << "\n";
 #endif
 
 		//inverse of this rotation
 		t3x3 Rinv = t3x3();
 		if ( inv(R, Rinv) == true ) {
-cout << "Rinv" << Rinv << endl;
+cout << "Rinv" << Rinv << "\n";
 			//for theStretch in theStretches 'U', 'V'
 
 			//F = RU so RinvF = RinvRU = IdU
 			//help = 'material strains based on right Cauchy--Green deformation, i.e., C and U')
-//			t3x3 stretchU = dot(Rinv, in);
-//			killnoise( stretchU, static_cast<real_m33>(EPSILON) );
+			t3x3 stretchU = dot(Rinv, in);
+			killnoise( stretchU, static_cast<real_m33>(EPSILON) );
 
 			//F = VR so FRinv = VRRinv = VId
 			//help = 'spatial strains based on left Cauchy--Green deformation, i.e., B and V')
 			t3x3 stretchV = dot(in, Rinv);
-
-#ifdef VERBOSE_ADDSTRAINTENSOR
-cout << "sV" << stretchV << endl;
-#endif
-
 			killnoise( stretchV, static_cast<real_m33>(EPSILON) );
 
 #ifdef VERBOSE_ADDSTRAINTENSOR
-cout << "sV" << stretchV << endl;
+cout << "sU" << stretchU << "\n";
+cout << "sV" << stretchV << "\n";
 #endif
+
 
 			//eigen decomposition of stretch tensor
 			t3x1 Dr = t3x1(); 	//real part of eigenvalues
@@ -585,44 +743,44 @@ cout << "sV" << stretchV << endl;
 
 			if ( eig( stretchV, Dr, Di, Vr, Vi) == true ) {
 #ifdef VERBOSE_ADDSTRAINTENSOR
-cout << "Dr" << Dr << endl;
-cout << "Vr" << Vr << endl;
+cout << "Dr" << Dr << "\n";
+cout << "Vr" << Vr << "\n";
 #endif
 
 			//if ( eig( stretchU, Dr, Di, Vr, Vi) == true ) {
-//cout << "Eigendecomposition of stretchU was successful!" << endl;
-cout << "Eigendecomposition of stretchV was successful!" << endl;
+//cout << "Eigendecomposition of stretchU was successful!" << "\n";
+cout << "Eigendecomposition of stretchV was successful!" << "\n";
 
 				//flip eigenvalue and eigenvector in case of negative (real part ##MK::is this sufficent?)eigenvalues
 				if ( Dr.a11 <= 0.0 ) {
-					//cout << "Flipping 1. negative eigenvalue/-vector positive" << endl;
+					//cout << "Flipping 1. negative eigenvalue/-vector positive" << "\n";
 					Dr.a11 *= -1.0;		Di.a11 *= -1.0;
 					Vr.a11 *= -1.0;		Vi.a11 *= -1.0; //matrix V contains the three column eigenvectors
 					Vr.a21 *= -1.0;		Vi.a21 *= -1.0;
 					Vr.a31 *= -1.0;		Vi.a31 *= -1.0;
 				}
 				if ( Dr.a21 <= 0.0 ) {
-					//cout << "Flipping 2. negative eigenvalue/-vector positive" << endl;
+					//cout << "Flipping 2. negative eigenvalue/-vector positive" << "\n";
 					Dr.a21 *= -1.0;		Di.a21 *= -1.0;
 					Vr.a12 *= -1.0;		Vi.a12 *= -1.0; //matrix V contains the three column eigenvectors
 					Vr.a22 *= -1.0;		Vi.a22 *= -1.0;
 					Vr.a32 *= -1.0;		Vi.a32 *= -1.0;
 				}
 				if ( Dr.a31 <= 0.0 ) {
-					//cout << "Flipping 3. negative eigenvalue/-vector positive" << endl;
+					//cout << "Flipping 3. negative eigenvalue/-vector positive" << "\n";
 					Dr.a31 *= -1.0;		Di.a31 *= -1.0;
 					Vr.a13 *= -1.0;		Vi.a13 *= -1.0; //matrix V contains the three column eigenvectors
 					Vr.a23 *= -1.0;		Vi.a23 *= -1.0;
 					Vr.a33 *= -1.0;		Vi.a33 *= -1.0;
 				}
 #ifdef VERBOSE_ADDSTRAINTENSOR
-cout << "Dr" << Dr << endl;
-cout << "Vr" << Vr << endl;
+cout << "Dr" << Dr << "\n";
+cout << "Vr" << Vr << "\n";
 #endif
 
 				//check for orthogonality
 				//##MK::
-cout << "##MK::add IntelMKL addStrainTensors add orthogonality check" << endl;
+cout << "##MK::add IntelMKL addStrainTensors add orthogonality check" << "\n";
 
 				//##MK::implement various cases which reference (V,U based) and flavor (ln,Biot,Green)
 				//U#ln
@@ -631,49 +789,166 @@ cout << "##MK::add IntelMKL addStrainTensors add orthogonality check" << endl;
 				Dr.a21 = log(Dr.a21);
 				Dr.a31 = log(Dr.a31);
 #ifdef VERBOSE_ADDSTRAINTENSOR
-cout << "lnDr" << Dr << endl;
+cout << "lnDr" << Dr << "\n";
 #endif
 				t3x3 dia = diag(Dr);
 
 #ifdef VERBOSE_ADDSTRAINTENSOR
-cout << "diag lnDr" << dia << endl;
+cout << "diag lnDr" << dia << "\n";
 #endif
 
 				t3x3 Vtrsp = transpose(Vr);
 
 #ifdef VERBOSE_ADDSTRAINTENSOR
-cout << "Vtrsp " << Vtrsp << endl;
+cout << "Vtrsp " << Vtrsp << "\n";
 #endif
 
 				//eps = (np.dot(V,np.dot(np.diag(d),V.T)).real).reshape(9)
 				t3x3 tmp = dot(dia, Vtrsp);
 
 #ifdef VERBOSE_ADDSTRAINTENSOR
-cout << "dot(dia,Vtrsp) " << tmp << endl;
+cout << "dot(dia,Vtrsp) " << tmp << "\n";
 #endif
 
 				//report strain tensor
 				eps = dot(Vr,tmp);
 
 #ifdef VERBOSE_ADDSTRAINTENSOR
-cout << "eps " << eps << endl;
+cout << "eps " << eps << "\n";
 #endif
 				return true;
 			}
 			else {
-cout << "Inversion of stretchU or V failed" << endl;
+				#pragma omp critical
+				{
+					cerr << "Inversion of stretchU or V failed" << "\n";
+				}
 				eps = zerot3x3();
 				return false;
 			}
 		}
 		else {
-cout << "MKL addStrainTensor R inversion failed" << endl;
+			#pragma omp critical
+			{
+				cerr << "MKL addStrainTensor R inversion failed" << "\n";
+			}
 			eps = zerot3x3();
 			return false;
 		}
 	}
 	else {
-cout << "MKL addStrainTensor singular value decomposition of input failed" << endl;
+		#pragma omp critical
+		{
+			cerr << "MKL addStrainTensor singular value decomposition of input failed" << "\n";
+		}
+		eps = zerot3x3();
+		return false;
+	}
+#endif
+}
+
+
+bool computeStrainTensor2( t3x3 const & in, const unsigned int straintensor,
+				const unsigned int strainkind, t3x3 & eps)
+{
+#ifndef INTELMKL_EXISTENT
+	cout << "IntelMKL commands were not compiled into the source code!" << "\n";
+	eps = failt3x3();
+	return false;
+#else
+	//start with deformation gradient tensor F as input in and make polar decomposition
+	t3x3 U = t3x3();
+	t3x1 S = t3x1();
+	t3x3 Vh = t3x3();
+
+	if ( svd(in, U, S, Vh) == true ) {
+
+		//get rotation of polar decomposition
+		t3x3 R = dot(U, Vh);
+
+#ifdef VERBOSE_ADDSTRAINTENSOR
+cout << "U" << U << "\n";
+cout << "S" << S << "\n";
+cout << "Vh" << Vh << "\n";
+cout << "R" << R << "\n";
+#endif
+
+		//inverse of this rotation
+		t3x3 Rinv = t3x3();
+		if ( inv(R, Rinv) == true ) {
+#ifdef VERBOSE_ADDSTRAINTENSOR
+cout << "Rinv" << Rinv << "\n";
+#endif
+			//for theStretch in theStretches 'U', 'V'
+
+			if ( straintensor == RIGHTCAUCHYGREEN ) {
+				//F = RU so RinvF = RinvRU = IdU
+				//help = 'material strains based on right Cauchy--Green deformation, i.e., C and U')
+				t3x3 stretchU = dot(Rinv, in);
+				killnoise( stretchU, static_cast<real_m33>(EPSILON) );
+
+#ifdef VERBOSE_ADDSTRAINTENSOR
+cout << "sU" << stretchU << "\n";
+#endif
+
+				t3x3 epsU = zerot3x3();
+				if ( computeEigDecompStretch2Strain( stretchU, strainkind, epsU ) == true ) {
+#ifdef VERBOSE_ADDSTRAINTENSOR
+cout << "Eigendecomposition of stretchU was successful!" << "\n";
+#endif
+					eps = epsU;
+					return true;
+				}
+				else {
+					eps = zerot3x3();
+					return false;
+				}
+			}
+			else if ( straintensor == LEFTCAUCHYGREEN ) {
+				//F = VR so FRinv = VRRinv = VId
+				//help = 'spatial strains based on left Cauchy--Green deformation, i.e., B and V')
+				t3x3 stretchV = dot(in, Rinv);
+				killnoise( stretchV, static_cast<real_m33>(EPSILON) );
+
+#ifdef VERBOSE_ADDSTRAINTENSOR
+cout << "sV" << stretchV << "\n";
+#endif
+
+				//eigen decomposition of stretch tensor
+				t3x3 epsV = zerot3x3();
+				if ( computeEigDecompStretch2Strain( stretchV, strainkind, epsV ) == true ) {
+					eps = epsV;
+					return true;
+				}
+				else {
+					eps = zerot3x3();
+					return false;
+				}
+			}
+			else {
+				#pragma omp critical
+				{
+					cerr << "Unknown straintensor type" << "\n";
+				}
+
+				eps = zerot3x3();
+				return false;
+			}
+		}
+		else {
+			#pragma omp critical
+			{
+				cerr << "MKL addStrainTensor R inversion failed" << "\n";
+			}
+			eps = zerot3x3();
+			return false;
+		}
+	}
+	else {
+		#pragma omp critical
+		{
+			cerr << "MKL addStrainTensor singular value decomposition of input failed" << "\n";
+		}
 		eps = zerot3x3();
 		return false;
 	}
@@ -682,13 +957,10 @@ cout << "MKL addStrainTensor singular value decomposition of input failed" << en
 
 
 
-
-
-
-bool computeCauchy( t3x3 const & F, t3x3 const & P, t3x3 &cauchy)
+bool computeCauchy( t3x3 const & F, t3x3 const & P, t3x3 & cauchy)
 {
 #ifndef INTELMKL_EXISTENT
-	cout << "IntelMKL commands were not compiled into the source code!" << endl;
+	cout << "IntelMKL commands were not compiled into the source code!" << "\n";
 	cauchy = failt3x3();
 	return false;
 #else
@@ -706,7 +978,7 @@ bool computeCauchy( t3x3 const & F, t3x3 const & P, t3x3 &cauchy)
 real_m33 computeMises( t3x3 const & tensor, bool isstresstensor )
 {
 #ifndef INTELMKL_EXISTENT
-	cout << "IntelMKL commands were not compiled into the source code!" << endl;
+	cout << "IntelMKL commands were not compiled into the source code!" << "\n";
 	#ifdef SINGLE_PRECISION
 		return numeric_limits<float>::max();
 	#else
@@ -722,13 +994,13 @@ real_m33 computeMises( t3x3 const & tensor, bool isstresstensor )
 
 	t3x3 symdev = mult(static_cast<real_m33>(0.5), add(dev,devtrsp));
 
-//cout << symdev << endl;
+//cout << symdev << "\n";
 	t3x3 symdevtrsp = transpose(symdev);
 
-//cout << symdevtrsp << endl;
+//cout << symdevtrsp << "\n";
 	real_m33 s = sum(dyadic(symdev,symdevtrsp));
 
-//cout << s << endl;
+//cout << s << "\n";
 
 	if (isstresstensor == true)
 		return sqrt(static_cast<real_m33>(3.0/2.0) * s);
@@ -759,7 +1031,7 @@ aabb3d get_corners( vector<real_xyz> &cx, vector<real_xyz> &cy, vector<real_xyz>
 		if ( cz[i] >= out.zmx ) { out.zmx = cz[i]; }
 	}
 
-cout << "Corners found" << endl << out << endl;
+	cout << "Corners found" << "\n" << out << "\n";
 	return out;
 }
 
@@ -780,7 +1052,7 @@ rfftn::~rfftn()
 void rfftn::init(unsigned int const * ngridd)
 {
 #ifdef SINGLE_PRECISION
-	cout << "MKL FFT rfftn single precision not yet implemented" << endl;
+	cout << "MKL FFT rfftn single precision not yet implemented" << "\n";
 	return;
 #else
 
@@ -826,7 +1098,7 @@ void rfftn::init(unsigned int const * ngridd)
 	//redefine how to interpret this carrier buffer
 	fftTempP = (MKL_Complex16*) &fftTemp[0];
 
-cout << "Initialized fFFT with NXYZ = " << NX << ";" << NY << ";" << NZ << " NIJK = " << NI << ";" << NJ << ";" << NK << endl;
+cout << "Initialized fFFT with NXYZ = " << NX << ";" << NY << ";" << NZ << " NIJK = " << NI << ";" << NJ << ";" << NK << "\n";
 #endif
 }
 
@@ -860,15 +1132,15 @@ void rfftn::forwardFFT()
 	DftiComputeForward(m_f_handle, &m_input[0] , fftTempP);
 
 	//##MK::DEBUG
-	/* 	cout << "Done, printing results" << endl;
+	/* 	cout << "Done, printing results" << "\n";
 	int jump = 0;
 	for (int j = 0; j < elements; ++j) {
-		cout << "(" << fftTempP[j].real << " , " << fftTempP[j].imag << ")" << endl;
+		cout << "(" << fftTempP[j].real << " , " << fftTempP[j].imag << ")" << "\n";
 		jump++;
 		if ( jump != 8)
 			continue;
 		else
-			cout << endl; jump = 0;
+			cout << "\n"; jump = 0;
 	}
 	*/
 }
@@ -889,7 +1161,7 @@ irfftn::~irfftn()
 void irfftn::init( unsigned int const * nfft, unsigned int const * ngridd )
 {
 #ifdef SINGLE_PRECISION
-cout << "MKL FFT rfftn single precision not yet implemented" << endl;
+cout << "MKL FFT rfftn single precision not yet implemented" << "\n";
 	return;
 #else
 	precision = DFTI_DOUBLE;
@@ -932,7 +1204,7 @@ cout << "MKL FFT rfftn single precision not yet implemented" << endl;
 
 	m_output.resize(requiredSize);
 
-cout << "Initialized iFFT with NIJK = " << NI << ";" << NJ << ";" << NK << " NXYZ = " << NX << ";" << NY << ";" << NZ << endl;
+cout << "Initialized iFFT with NIJK = " << NI << ";" << NJ << ";" << NK << " NXYZ = " << NX << ";" << NY << ";" << NZ << "\n";
 #endif
 }
 
@@ -966,9 +1238,9 @@ void irfftn::backwardFFTandNormalize()
 
 	/*
 	//##MK::DEBUG
-cout << "Done, printing results size of m_output " << m_output.size() << endl;
+cout << "Done, printing results size of m_output " << m_output.size() << "\n";
 		for (size_t e = 0; e < m_output.size(); ++e) {
-		cout << m_output.at(e) << endl;
+		cout << m_output.at(e) << "\n";
 	}
 	*/
 
@@ -976,7 +1248,7 @@ cout << "Done, printing results size of m_output " << m_output.size() << endl;
 	//double _norm = (1.0/static_cast<double>(NFFT)) * (1.0/static_cast<double>(NFFT)) * (1.0/static_cast<double>(NFFT)); //##MK::check carefully for cuboidal geometry
 
 	double _norm = (1.0/static_cast<double>(NX)) * (1.0/static_cast<double>(NY)) * (1.0/static_cast<double>(NZ)); //##MK::check carefully for cuboidal geometry
-cout << "Performing normalization with " << _norm << endl;
+cout << "Performing normalization with " << _norm << "\n";
 	for (size_t e = 0; e < m_output.size(); ++e) {
 		m_output[e] *= _norm;
 	}
@@ -997,7 +1269,10 @@ unsigned int fourier_transform_defgradient( vector<t3x3> const & defgrad, unsign
 					delete ffts.at(i); ffts.at(i) = NULL;
 				}
 			}
-cout << "Fourier transformation of F components failed because FFT class objects were not allocateable" << endl;
+			#pragma omp critical
+			{
+				cerr << "Fourier transformation of F components failed because FFT class objects were not allocateable" << "\n";
+			}
 			return 0;
 		}
 
@@ -1007,29 +1282,29 @@ cout << "Fourier transformation of F components failed because FFT class objects
 
 		ffts.push_back(anfft);
 
-cout << "FFT for component " << component << " done!" << endl;
+cout << "FFT for component " << component << " done!" << "\n";
 	}
 
 
 	/*
 	//##MK::DEBUG
 	//organized output to check - real
-cout << ffts.at(0)->NIJK <<  " component values are in total, their real parts are " << endl;
+cout << ffts.at(0)->NIJK <<  " component values are in total, their real parts are " << "\n";
 	for ( unsigned int ffti = 0; ffti < ffts.at(0)->NIJK; ++ffti ) { //##MK::all ffts on same grid
 		for (unsigned int c = 0; c < 8; ++c) {
 			cout << ffts.at(c)->fftTempP[ffti].real << ";";
 		}
-		cout << ffts.at(8)->fftTempP[ffti].real << endl;
+		cout << ffts.at(8)->fftTempP[ffti].real << "\n";
 	}
 
-	cout << endl << endl;
+	cout << "\n" << "\n";
 	//imag
-cout << ffts.at(0)->NIJK <<  " component values are in total, their imaginary parts are " << endl;
+cout << ffts.at(0)->NIJK <<  " component values are in total, their imaginary parts are " << "\n";
 	for ( unsigned int ffti = 0; ffti < ffts.at(0)->NIJK; ++ffti ) {
 		for (unsigned int c = 0; c < 8; ++c) {
 			cout << ffts.at(c)->fftTempP[ffti].imag << ";";
 		}
-		cout << ffts.at(8)->fftTempP[ffti].imag << endl;
+		cout << ffts.at(8)->fftTempP[ffti].imag << "\n";
 	}
 	*/
 
@@ -1042,7 +1317,7 @@ unsigned int displacement_fluctuations( vector<rfftn*> const & ffts, unsigned in
 {
 	//compute local position fluctuation from deformation gradient tensor ffts
 	//##MK::dangerous! rather parse form fft directly or make displacement_fluctuation class with tools fft
-	cout << "Now computing fluctuant displacements..." << endl;
+	cout << "Now computing fluctuant displacements..." << "\n";
 
 	//MK::do not use unsigned integer types for grd as these are passed to k_s inplace
 	//they can have negative values (not the grid dimension itself but the frequency supporting points)
@@ -1079,12 +1354,12 @@ unsigned int displacement_fluctuations( vector<rfftn*> const & ffts, unsigned in
 	}
 
 	/*
-	cout << "k_s" << endl;
+	cout << "k_s" << "\n";
 	for ( size_t e = 0; e < k_s.size(); e=e+3 ) {
-		cout << k_s[e] << endl;
-		cout << k_s[e+1] << endl;
-		cout << k_s[e+2] << endl;
-		cout << endl << endl;
+		cout << k_s[e] << "\n";
+		cout << k_s[e+1] << "\n";
+		cout << k_s[e+2] << "\n";
+		cout << "\n" << "\n";
 	}
 	*/
 
@@ -1104,7 +1379,7 @@ unsigned int displacement_fluctuations( vector<rfftn*> const & ffts, unsigned in
 
 	size_t intoverflow = static_cast<size_t>(NI) * static_cast<size_t>(NJ) * static_cast<size_t>(NK);
 	if ( intoverflow >= static_cast<size_t>(numeric_limits<int>::max()) ) {
-		cout << "Potential INT overflow please revise code to change ints in this einsum to long types" << endl;
+		cerr << "Potential INT overflow please revise code to change ints in this einsum to long types" << "\n";
 		return 0;
 	}
 
@@ -1121,7 +1396,7 @@ unsigned int displacement_fluctuations( vector<rfftn*> const & ffts, unsigned in
 	}
 
 /* 	for ( size_t e = 0; e < k_sSquared.size(); ++e)
-		cout << k_sSquared.at(e) << endl; */
+		cout << k_sSquared.at(e) << "\n"; */
 
 	//ignore global average frequency
 	k_sSquared.at(0) = 1.0;
@@ -1129,7 +1404,7 @@ unsigned int displacement_fluctuations( vector<rfftn*> const & ffts, unsigned in
 
 	//MK::integration in Fourier space involving complex numbers!
 	//double integrator_real[3] = {0.0, 0.0, 0.0};
-	double integrator_imag[3] = { 0.5*nsz[0]/PI, 0.5*nsz[1]/PI, 0.5*nsz[2]/PI };
+	double integrator_imag[3] = { 0.5*nsz[0]/MYPI, 0.5*nsz[1]/MYPI, 0.5*nsz[2]/MYPI };
 
 	//-np.einsum('ijkml,ijkl,l->ijkm', F, k_s, integrator) / k_sSquared(ijk)
 	vector<double> displacement_fourier_real;
@@ -1215,14 +1490,14 @@ unsigned int displacement_fluctuations( vector<rfftn*> const & ffts, unsigned in
 
 	/*
 	//##MK::DEBUG
-	cout << "displreal.size() " << displacement_fourier_real.size() << endl;
+	cout << "displreal.size() " << displacement_fourier_real.size() << "\n";
 	for (size_t e = 0; e < displacement_fourier_real.size(); ++e) {
-		cout << displacement_fourier_real.at(e) << endl;
+		cout << displacement_fourier_real.at(e) << "\n";
 	}
-	cout << endl;
-	cout << "displimag.size() " << displacement_fourier_imag.size() << endl;
+	cout << "\n";
+	cout << "displimag.size() " << displacement_fourier_imag.size() << "\n";
 	for (size_t e = 0; e < displacement_fourier_imag.size(); ++e) {
-		cout << displacement_fourier_imag.at(e) << endl;
+		cout << displacement_fourier_imag.at(e) << "\n";
 	}
 	*/
 
@@ -1237,7 +1512,7 @@ unsigned int displacement_fluctuations( vector<rfftn*> const & ffts, unsigned in
 					delete iffts.at(i); iffts.at(i) = NULL;
 				}
 			}
-			cout << "Fluctuation displacement computation was unsuccessful because of failing allocation during iFFT" << endl;
+			cerr << "Fluctuation displacement computation was unsuccessful because of failing allocation during iFFT" << "\n";
 			return 0;
 		}
 		anifft->init( ngr, ugrd ); //##MK::unneccessary nsz );
@@ -1246,7 +1521,7 @@ unsigned int displacement_fluctuations( vector<rfftn*> const & ffts, unsigned in
 
 		iffts.push_back(anifft);
 
-cout << "iFFT for component " << component << " done!" << endl;
+cout << "iFFT for component " << component << " done!" << "\n";
 	}
 
 	//transfer displacements
@@ -1265,9 +1540,9 @@ cout << "iFFT for component " << component << " done!" << endl;
 
 	/*
 	//##MK::DEBUG
-	cout << "Computed, the fluctuant displacements per integration point are" << endl;
+	cout << "Computed, the fluctuant displacements per integration point are" << "\n";
 	for (size_t eipid = 0; eipid < neipid; ++eipid) {
-		cout << flucts.at(eipid).x << ";" << flucts.at(eipid).y << ";" << flucts.at(eipid).z << endl;
+		cout << flucts.at(eipid).x << ";" << flucts.at(eipid).y << ";" << flucts.at(eipid).z << "\n";
 	}
 	*/
 
@@ -1280,7 +1555,7 @@ void displacement_average( vector<rfftn*> const & ffts,
 {
 	//compute average position fluctuation from deformation gradient tensor ffts
 
-	cout << "Now computing average displacement..." << endl;
+	cout << "Now computing average displacement..." << "\n";
 
 	//build coordinate mesh linspace(0.0,nsz[i],ngr[i],endpoint=false)
 	size_t requiredSize = 	static_cast<size_t>(ngr[0]) *
@@ -1306,7 +1581,7 @@ void displacement_average( vector<rfftn*> const & ffts,
 				xyz.at(where+1) = yy;
 				xyz.at(where+2) = zz;
 				where+=3;
-				cout << xx << ";" << yy << ";" << zz << endl;
+				cout << xx << ";" << yy << ";" << zz << "\n";
 			}
 		}
 	}*/
@@ -1378,10 +1653,10 @@ void displacement_average( vector<rfftn*> const & ffts,
 
 	/*
 	//##MK::DEBUG
-	cout << "Computed, the average displacements per integration point are" << endl;
+	cout << "Computed, the average displacements per integration point are" << "\n";
 	size_t neipid = flucts.size();
 	for (size_t eipid = 0; eipid < neipid; ++eipid) {
-		cout << flucts.at(eipid).dx << ";" << flucts.at(eipid).dy << ";" << flucts.at(eipid).dz << endl;
+		cout << flucts.at(eipid).dx << ";" << flucts.at(eipid).dy << ";" << flucts.at(eipid).dz << "\n";
 	}
 	*/
 }

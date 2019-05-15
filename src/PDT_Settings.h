@@ -54,13 +54,47 @@ enum E_ANALYSIS_MODE {
 };
 
 enum E_THRESHOLDING_MODE {
-	E_CLOSESTNBORIP_DISORIANGLE_THRESHOLD,
-	E_HIERARCHICALCOMMUNITY_SIGNEDDISTANCEFUNCTION //E_SLIPSYSTEM_COMPATIBILITY_BASED
+	E_DISORIANGLE,
+	E_SIGNEDDISTANCEFUNCTION,
+	E_VORONOITESSELLATION //E_SLIPSYSTEM_COMPATIBILITY_BASED
 };
 
 enum E_GRAINRECON_MODE {
 	E_HIERARCHICAL_CLUSTERING,
 	E_INITIAL_TEXTUREID
+};
+
+
+enum STRAINTENSOR_TYPE {
+	RIGHTCAUCHYGREEN,
+	LEFTCAUCHYGREEN
+};
+
+
+enum STRAINVALUE_KIND {
+	LNSTRAIN,
+	BIOTSTRAIN,
+	GREENSTRAIN
+};
+
+//scalars types
+enum SCALAR_QUANTITIES {
+	VONMISES_STRAIN,
+	VONMISES_STRESS
+};
+
+
+//tensor types
+enum TENSORIAL_QUANTITIES {
+	V_VOLUME,
+	F_TOTAL,
+	F_ELASTIC,
+	F_PLASTIC,
+	P_STRESS,
+	CAUCHY_STRESS,
+	TRUE_STRAIN,
+	EPS_RIGHTCAUCHYGREEN_LN_FT,
+	EPS_RIGHTCAUCHYGREEN_LN_FP
 };
 
 class Settings {
@@ -82,6 +116,8 @@ public:
 	static bool AnalyzeStateVarSpatialDistr;			//characterize spatial distribution of state variable close to interfaces
 	static bool AnalyzeReconstructGrains;
 
+	static string AddStrainTensorOpts;
+
 	static unsigned int GrainReconModel;
 	static unsigned int StateVarThrshldModel;
 	static bool ThrshldAgainstDefConfig;
@@ -97,7 +133,10 @@ public:
 	static real_xyz DBScanKernelRadius;
 	static real_xyz PVTessKernelRadius;
 	static real_xyz PVTessCubeVoxelEdgeLen;
+
 	static unsigned int PVTessGuardZoneEdgeLen;
+
+	static real_xyz VoroTessContourGuardEdgeLen;
 
 //DEBUG and VISUALIZATION OPTIONS
 	static unsigned int VisIPGridWithTextureID;
@@ -112,6 +151,7 @@ public:
 	static unsigned int VisGrainFinalReconstruction;
 
 	static unsigned int VisGrainQuaternionClouds;
+	static unsigned int VisLOUVAINGraphEdges;
 	static double DebugDouble;
 	static unsigned int DebugUnsignedInt;
 

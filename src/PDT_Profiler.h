@@ -44,50 +44,92 @@
 
 #include "PDT_Verbose.h"
 
-//MK::profiling requires double precision floating points as MPI_Wtime and omp_get_wtime
 
-class plog
+//program profiling should use double precision in general as
+//MPI_Wtime() and omp_get_wtime() fires in double precision
+
+//type of computational operations
+#define APT_XX				0		//default, unspecified
+#define APT_UTL				1		//utility
+#define APT_SPE_IO			2		//SpectralOut I/O
+#define APT_MPI_IO			3		//MPI I/O
+#define APT_VIS_IO			4
+#define APT_GRA				5		//grain recon
+#define APT_DIS				6		//disori
+#define APT_SDF				7		//signed distance
+#define APT_TES				8		//tessellation
+#define APT_COR				9		//actual distance correlations
+
+
+#define APT_IS_UNKNOWN		-1
+#define APT_IS_SEQ			0
+#define APT_IS_PAR			1		//information telling that parallelism is used
+
+#define MEMORY_NOSNAPSHOT_TAKEN		-1
+
+
+struct memsnapshot
 {
-public:
-	plog() : dt(0.0), tstart(0.0), tend(0.0), what("") {}
-	plog(const double _dt, const string s) : dt(_dt), tstart(0.0), tend(0.0), what(s) {}
-	plog(const double _ts, const double _te, const string s) : tstart(_ts), tend(_te), what(s) {
-		dt = _te - _ts;
-	}
-	~plog(){}
+	size_t virtualmem;
+	size_t residentmem;
+	memsnapshot() : virtualmem(MEMORY_NOSNAPSHOT_TAKEN),
+			residentmem(MEMORY_NOSNAPSHOT_TAKEN) {}
+	memsnapshot(const size_t _vm, const size_t _rm) :
+		virtualmem(_vm), residentmem(_rm) {}
+};
 
-	double get_dt(){
-		return dt;
-	}
-	double get_tstart(){
-		return tstart;
-	}
-	double get_tend() {
-		return tend;
-	}
-	string get_what() {
-		return what;
-	}
 
-private:
+struct plog
+{
 	double dt;
 	double tstart;
 	double tend;
+	size_t virtualmem;		//virtual memory consumption in bytes
+	size_t residentmem;		//resident set size in bytes, i.e. number of pages process as in real memory times system specific page size
 	string what;
-};
+	unsigned short typ;		//task identifier
+	unsigned short pll;		//parallelism identifier
+	unsigned int i;			//running number to identify the which-th snapshot
+							//used because for easier utilizability of the result
+							//we sort in ascending processing time thereby however having the mem data not as a time trajectory
+	unsigned int tskid;		//to distinguish for the individual increments
 
+	plog() : dt(0.0), tstart(0.0), tend(0.0), virtualmem(-1), residentmem(-1),
+			what(""), typ(APT_XX), pll(APT_IS_SEQ), i(0), tskid(0) {}
+	plog(const double _dt, const size_t _vm, const size_t _rm, const string _s,
+			const unsigned short _t, const unsigned short _p, const unsigned int _i, const unsigned int _tskid) :
+				dt(_dt), tstart(0.0), tend(0.0), virtualmem(_vm), residentmem(_rm),
+				what(_s), typ(_t), pll(_p), i(_i), tskid(_tskid) {}
+	plog(const double _ts, const double _te, const string _s,
+			const unsigned short _t, const unsigned short _p, const unsigned int _i, const unsigned int _tskid) :
+				dt(_te - _ts), tstart(_ts), tend(_te), virtualmem(-1), residentmem(-1),
+				what(_s), typ(_t), pll(_p), i(_i), tskid(_tskid) {}	//version not tracking memory consumption
+	plog(const double _ts, const double _te, const size_t _vm, const size_t _rm,
+			const string _s, const unsigned short _t, const unsigned short _p,
+			const unsigned int _i, const unsigned int _tskid) :
+				dt(_te - _ts), tstart(_ts), tend(_te), virtualmem(_vm), residentmem(_rm),
+				what(_s), typ(_t), pll(_p), i(_i), tskid(_tskid) {}	//version tracking memory consumption
+};
 
 class profiler
 {
 public:
-	profiler();
-	~profiler();
+	profiler() {};
+	~profiler() {};
 
-	void log(const string whichenv, const double howlong);
+	//void prof(const string whichenv, const unsigned short category, const double st, const double en);
+	void prof_elpsdtime_and_mem(const string whichenv, const unsigned short category,
+			const unsigned short parallelism, memsnapshot const & mem, const double st, const double en,
+			const unsigned int taskid );
+	void prof_elpsdtime_and_mem(const string whichenv, const unsigned short category,
+				const unsigned short parallelism, memsnapshot const & mem, const double dt,	const unsigned int taskid );
+		memsnapshot get_memoryconsumption( void );
 	size_t get_nentries( void );
+	void report_memory( pair<size_t,size_t> const & in );
+	void spit_profiling( const unsigned int simid, const int rank );
 
 private:
-	vector <plog> evn;
+	vector<plog> evn;
 };
 
 

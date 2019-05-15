@@ -43,7 +43,7 @@
 #ifndef __PDT_NUMERICS_H__
 #define __PDT_NUMERICS_H__
 
-//single or double precision?
+//single or double precision for elementary floating point values
 //#define SINGLE_PRECISION
 
 #ifdef SINGLE_PRECISION
@@ -55,14 +55,46 @@
 	#define EPSILON (1.0e-12)
 #endif
 
-
-//adjustable precision for different core functionalities
+//user-derived adjustable precision for different core functionalities
+typedef real voro_real;			//tessellation library interface
+typedef size_t voro_uint;
+typedef int voro_int;			//MK::int is demanded by Voro++ library!
 typedef real real_ori;			//orientation math
 typedef real real_rho;			//microstructure state variable values related to dislocations
 typedef real real_xyz;			//positional data
 typedef real real_m33;			//tensor data, deformation gradients, etc...
 
 typedef real real_sdf;			//accuracy when computing signed-distance function values
+
+
+
+//type range
+#define UCHARMX							numeric_limits<unsigned char>::max()
+#define UCHARMI							numeric_limits<unsigned char>::lowest()
+#define INT16MX							numeric_limits<short>::max()
+#define INT16MI							numeric_limits<short>::min()
+#define INT32MX							numeric_limits<int>::max()
+#define INT32MI							numeric_limits<int>::lowest()
+#define UINT16MX						numeric_limits<unsigned short>::max()
+#define UINT16MI						numeric_limits<unsigned short>::lowest()
+#define UINT32MX						numeric_limits<unsigned int>::max()
+#define UINT32MI						numeric_limits<unsigned int>::lowest()
+#define UINT64MX						numeric_limits<size_t>::max()
+#define UINT64MI						numeric_limits<size_t>::lowest()
+#define UINT64XX						-1
+#define F64MX							numeric_limits<double>::max()
+#define F64MI							numeric_limits<double>::lowest()
+
+//type range user types
+#define VOROUINTMX						numeric_limits<voro_uint>::max()
+#define VOROUINTMI						numeric_limits<voro_uint>::lowest()
+#define VOROUINTXX						-1
+#define VOROINTMX						numeric_limits<voro_int>::max()
+#define VOROINTMI						numeric_limits<voro_int>::lowest()
+#define VOROFMX							numeric_limits<voro_real>::max()
+#define VOROFMI							numeric_limits<voro_real>::lowest()
+
+
 
 
 //signum function
@@ -74,6 +106,17 @@ template <typename T> int sgn(T val)
 
 //SDF initialization
 #define	FASTSWEEPING_INITIAL_VALUE		(-1.0)
+
+//tessellation specific
+#define VORO_COMPOSER_VERTEX_MAPPING_HASHVAL	2097152		//2^21 if spreading the bit range of size_t for x,y, z
+#define VOROZERO 				static_cast<voro_real>(0.0)
+
+
+//random
+#define MT19937SEED						(-1)
+#define MT19937WARMUP					(700000)
+
+
 
 //flags
 #define YES					(0xFF)

@@ -46,9 +46,22 @@
 #include <mpi.h>
 #include <omp.h>
 
-#define MASTER					0
-#define SINGLE					1
+#define INCOMPLETE_DATASET		-1
 
-#define SINGLE_THREADED			1
+#define MASTER									0
+#define SINGLETHREADED							1
+#define	SINGLEPROCESS							1
+
+
+//implicitly performance affecting choices
+//file read ahead system related settings
+#define SEQIO_READ_CACHE						((10)*(1024)*(1024)) //bytes
+#define MPIIO_READ_CACHE						((10)*(1024)*(1024)) //bytes
+
+#ifdef EMPLOY_SINGLEPRECISION
+	#define SIMDREGISTER_WIDTH					(8) //elements assuming eight 32 bit floats to fit in 256bit wide SIMD register of contemporary processor
+#else
+	#define SIMDREGISTER_WIDTH					(4) //256bit can take four 64bit double at a time
+#endif
 
 #endif
