@@ -88,6 +88,22 @@ struct voro_facet
 };
 
 
+struct bvh_stats
+{
+	size_t bvh_calls;
+	size_t bvh_cands;
+	size_t bvh_fsum;
+	size_t facet_covered;
+	size_t edges_tested;
+	size_t verts_tested;
+	bvh_stats() : bvh_calls(0), bvh_cands(0), bvh_fsum(0), facet_covered(0), edges_tested(0), verts_tested(0) {}
+	bvh_stats( const size_t _cl, const size_t _ca, const size_t _fs, const size_t _ft, const size_t _et, const size_t _vt ) :
+		bvh_calls(_cl), bvh_cands(_ca), bvh_fsum(_fs), facet_covered(_ft), edges_tested(_et), verts_tested(_vt) {}
+};
+
+ostream& operator<<(ostream& in, bvh_stats const & val);
+
+
 class microstructural_object
 {
 public:
@@ -103,7 +119,7 @@ public:
 	void identify_normaldistances();  	//incorrect geometrical shadows not considered and unstable numerics
 	void identify_normaldistances2();	//shadows considered as well as edge and vertex checks but all against all
 */
-	void identify_normaldistances3( const voro_real threshold ); 	//like 2 but aabb pruning, using prereversed and projected contour
+	bvh_stats identify_normaldistances3( const voro_real threshold ); 	//like 2 but aabb pruning, using prereversed and projected contour
 	bool visualize_object_hull( const unsigned int simid, const unsigned int incr, const unsigned int gid );
 	bool visualize_distances( const unsigned int simid, const unsigned int incr, const unsigned int gid );
 

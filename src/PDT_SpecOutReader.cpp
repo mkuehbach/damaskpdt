@@ -3405,7 +3405,7 @@ void grGeomHdl::build_contour_from_vorotess()
 
 		voro_real thrs = 0.9; //at which fractional reduction of the sqrdistance to we reevaluate iteratively again the tree to reduce facet distance test
 
-		contour.identify_normaldistances3( thrs );
+		bvh_stats mystats = contour.identify_normaldistances3( thrs );
 
 		if ( Settings::VisGrainFinalReconstruction == (cgid+1) ) {
 			contour.visualize_distances( Settings::SimID, owner->thisincrement, cgid );
@@ -3415,7 +3415,7 @@ void grGeomHdl::build_contour_from_vorotess()
 
 		#pragma omp critical
 		{
-			cout << "Local distancing of grain " << cgid << " performed, took " << (mytoc-mytic) << " seconds" << "\n";
+			cout << "Increment " << owner->thisincrement << " grain " << cgid << " performed, took " << (mytoc-mytic) << " seconds " << mystats << "\n";
 		}
 	}
 	else {

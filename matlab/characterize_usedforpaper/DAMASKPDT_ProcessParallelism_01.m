@@ -24,6 +24,7 @@ for rk=1:1:parm.N
     parm.NC = str2double(extractBetween(parm.fn,'NC.','.bin'));
     parm.ID = str2double(extractBetween(parm.fn,'SimID.','.Rank'));
     parm.RK = str2double(extractBetween(parm.fn,'Rank.','.My'));
+    parm.SimID = str2double(extractBetween(parm.fn,'DAMASKPDT.SimID.','.Rank'));
         
 %% load content
     filename = parm.fn; %'/mnt/home/m.kuehbach/DAMASKPDT_VoroComposer_FINAL/Benchmarking/DAMASKPDT.SimID.30101345.Rank.0.MyProfiling.csv';
@@ -57,14 +58,14 @@ for rk=1:1:parm.N
     %get most costly non-io from per rank
     j = N;
     for i=N:-1:1
-        if cand(i,1)~=1
+        if cand(i,1)~=1 %is not io
             A1C = WallClock(i,1);
             A1W = What(i,1);
             j = i;
             break;
         end
     end
-    for i=j-1:-1:1
+    for i=j-1:-1:1 %learn from previous knowledge
         if cand(i,1)~=1
             A2C = WallClock(i,1);
             A2W = What(i,1);
@@ -94,23 +95,42 @@ for rk=1:1:parm.N
     %fprintf(fid, '%s\n','DistanceBinEndPixel;Counts;0.0;0.01;0.05;0.25;0.5;0.75;0.95;0.99;1.0;KSDecision0.05;KSSign0.05;KSDecision0.01;KSSign0.01');
     %fclose(fid);
     %dlmwrite(parm.csv,QUANTMATRIX,'-append','delimiter',';');
+
+    
 end
-plot(MPI(:,1),MPI(:,2),'.');
+dlmwrite(['DAMASKPDT.SimID.' num2str(parm.SimID) ...
+    '.AllRanks.TaskTime.csv'], MPI,'delimiter',';');
+%dlmwrite(['DAMASKPDT.SimID.' num2str(parm.SimID) '.AllRanks.TaskName.csv'], WHAT,'delimiter',';');
+fid = fopen(['DAMASKPDT.SimID.' num2str(parm.SimID) ...
+    '.AllRanks.TaskName.csv'], 'wt');
+SZ = size(WHAT);
+for i=1:1:SZ(1,1)
+    fprintf(fid, '%s;%s;%s;%s;%s;%s;%s\n', ...
+        char(WHAT{i,1}), ...
+        char(WHAT{i,2}), ...
+        char(WHAT{i,3}), ...
+        char(WHAT{i,4}), ...
+        char(WHAT{i,5}), ...
+        char(WHAT{i,6}), ...
+        char(WHAT{i,7}) );
+end
+fclose(fid);
+
+
+%plot(MPI(:,1),MPI(:,2),'.');
 %method spec wwall clock s
-min(MPI(:,2))
-max(MPI(:,2))
+%min(MPI(:,2))
+%max(MPI(:,2))
 %virt GB
-min(MEM(:,2))
-max(MEM(:,2))
+%min(MEM(:,2))
+%max(MEM(:,2))
 %resi GB
-min(MEM(:,3))
-max(MEM(:,3))
-
-
+%min(MEM(:,3))
+%max(MEM(:,3))
 
 
 %ID, virtual mem,  resident set size
-MEM(:,2:3) = MEM(:,2:3)/(1024^3); %GB
+%MEM(:,2:3) = MEM(:,2:3)/(1024^3); %GB
 
 %MEM(:,2:3) = MEM(:,2:3)/ ((256^3)*(8*(1+1+4+9+9+9))); 
 %considering additional material points etc. Fe was not loaded %(1024^3);

@@ -60,6 +60,14 @@ ostream& operator<<(ostream& in, tess_domain_info const & val)
 }
 
 
+ostream& operator<<(ostream& in, bvh_stats const & val)
+{
+	in << val.bvh_calls << ";" << val.bvh_cands << ";" << val.bvh_fsum << ";" << val.facet_covered << ";" << val.edges_tested << ";" << val.verts_tested;
+	return in;
+}
+
+
+
 microstructural_object::microstructural_object()
 {
 	ori = squat();
@@ -911,10 +919,13 @@ cout << "Reporting shortest ___" << interior_d.back() << "___\n";
 
 
 //#define REPRUNING_FRACTION 0.90
-void microstructural_object::identify_normaldistances3( const voro_real threshold )
+bvh_stats microstructural_object::identify_normaldistances3( const voro_real threshold )
 {
+/*
 	double mytic = omp_get_wtime();
+*/
 	size_t globalstats = 0;
+	bvh_stats bvhstats = bvh_stats();
 /*
 	vector<unsigned int> iotopo;
 	vector<float> ioattr;
@@ -936,6 +947,7 @@ void microstructural_object::identify_normaldistances3( const voro_real threshol
 		for( unsigned int f = 0; f < nf; ++f )
 			facet_candidates.push_back( f );
 
+		bvhstats.bvh_cands += facet_candidates.size();
 		while( f < nf ) {
 		//for(   ; f < nf;   ) {
 
@@ -988,6 +1000,8 @@ void microstructural_object::identify_normaldistances3( const voro_real threshol
 			//bool inside = boost::geometry::within( hitproj, contour_poly, fran_);
 			bool inside = boost::geometry::covered_by( hitproj, contour_poly );
 
+			bvhstats.facet_covered++;
+
 			//https://www.boost.org/doc/libs/1_62_0/libs/geometry/doc/html/geometry/reference/algorithms/within/within_3_with_strategy.html
 			//https://www.boost.org/doc/libs/1_57_0/libs/geometry/doc/html/geometry/reference/algorithms/covered_by/covered_by_3_with_strategy.html
 			if ( inside == false ) { //most likely case, not inside test the next facet candidate
@@ -1029,6 +1043,8 @@ void microstructural_object::identify_normaldistances3( const voro_real threshol
 
 					to_reduced_row_echelon_form(M);
 
+					bvhstats.edges_tested++;
+
 					if ( M[2][0] < EPSILON && M[2][1] < EPSILON && M[2][2] < EPSILON ) {
 						//there is a solution get beta M[1][2]
 						//orthogonal projection from p on the polygon contour segment shoots past the segment
@@ -1051,6 +1067,7 @@ void microstructural_object::identify_normaldistances3( const voro_real threshol
 				for( size_t i = ft.v_s; i < ft.v_e; ++i ) {
 					voro_p3d vertex = exterior_v_aligned[i];
 					voro_real dist = SQR(vertex.x-pt->x)+SQR(vertex.y-pt->y)+SQR(vertex.z-pt->z);
+					bvhstats.verts_tested++;
 					if ( dist > shortest_sqr_normal_distance ) {
 						continue;
 					}
@@ -1079,6 +1096,7 @@ void microstructural_object::identify_normaldistances3( const voro_real threshol
 
 			if ( reprune == false ) {
 				f++;
+				bvhstats.bvh_fsum++;
 			}
 			else {
 //cout << "Repruning " << shortest_sqr_normal_distance << "\n";
@@ -1089,6 +1107,9 @@ void microstructural_object::identify_normaldistances3( const voro_real threshol
 				f = 0;
 				nf = static_cast<unsigned int>(facet_candidates.size());
 				reprune = false;
+
+				bvhstats.bvh_calls++;
+				bvhstats.bvh_cands += facet_candidates.size();
 			}
 
 		} //probe the next facet
@@ -1155,8 +1176,10 @@ cout << iid << "\n";
 	else {
 		cerr << "Unable to open " << xmlfn << "\n";
 	}
-*/
+
 	double mytoc = omp_get_wtime();
+*/
+	return bvhstats;
 	/*#pragma omp critical
 	{
 		cout << "Total number of facets tested for distancing " << globalstats << "\n";

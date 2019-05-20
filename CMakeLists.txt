@@ -17,10 +17,10 @@ set(EMPLOY_GNUCOMPILER OFF)
 #choose optimization level
 ##-O0 nothing, debug purposes, -O1 moderate optimization, -O2 -O3 or production level up to aggressive optimization
 if(EMPLOY_INTELCOMPILER)
-	set(MYOPTLEVEL "-O3 -g -march=skylake") #-O3 -g -march=skylake") #"-O0 -g"
+	set(MYOPTLEVEL "-O3 -g") #-O3 -g -march=skylake") #"-O0 -g"
 endif()
 if(EMPLOY_GNUCOMPILER)
-	set(MYOPTLEVEL "-O3 -g -march=native")
+	set(MYOPTLEVEL "-O3 -g") # -march=native")
 endif()
 
 #necessary libraries and thirdparty dependencies
