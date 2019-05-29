@@ -692,6 +692,7 @@ public:
 	void discern_replica_via_dbscan();
 	void pick_one_replica_from_dbscan();
 	void write_dbscan_result();
+	void visualize_dbscan_result();
 	void init_global_voxelgrid_csys();
 	void init_grainlocal_voxelgrids_csys();
 	void extract_grainlocal_cuboidalregion_from_rve27();

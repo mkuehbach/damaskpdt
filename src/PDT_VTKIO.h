@@ -90,4 +90,8 @@ bool vtk_gp3d( vector<p3d> const & p,
 					vector<unsigned int> const & grainid,
 						const unsigned int increment);
 
+bool vtk_aabb3d( vector<aabb3d> const & boxes,
+					vector<unsigned int> const & grainid,
+						const unsigned int increment);
+
 #endif

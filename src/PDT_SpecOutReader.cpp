@@ -7420,6 +7420,8 @@ void specOutIncr::pick_one_replica_from_dbscan()
 
 	write_dbscan_result();
 
+	visualize_dbscan_result();
+
 	toc = MPI_Wtime();
 	mm = memsnapshot(); //tictoc.get_memoryconsumption();
 	tictoc.prof_elpsdtime_and_mem( "addGrainsReportDBScan", APT_UTL, APT_IS_SEQ, mm, tic, toc, thisincrement);
@@ -7467,6 +7469,33 @@ void specOutIncr::write_dbscan_result()
 	double toc = MPI_Wtime();
 
 	//tictoc.push_back(plog(tic, toc, "IO::WriteDBScanResults" + to_string(thisincrement)));
+}
+
+
+void specOutIncr::visualize_dbscan_result()
+{
+	vector<aabb3d> bxs;
+	vector<unsigned int> u32;
+	for (size_t gr = 0; gr < sdf.size(); ++gr) {
+		grGeomHdl* thisgrain = sdf.at(gr);
+		if (thisgrain != NULL) { //exists
+			//if (thisgrain->healthy == true) {
+			for( auto it = thisgrain->dbscanres.begin(); it != thisgrain->dbscanres.end(); it++) {
+				if ( it->chosen == false ) {
+					continue;
+				}
+				else {
+					aabb3d bx = it->box;
+					unsigned int id = thisgrain->cgid;
+					bxs.push_back( bx );
+					u32.push_back( id );
+				}
+			}
+		}
+	}
+
+	cout << "Writing VTK DBScan visualization file with " << bxs.size() << " boxes and " << u32.size() << " ids" << "\n";
+	bool status = vtk_aabb3d( bxs, u32, thisincrement );
 }
 
 

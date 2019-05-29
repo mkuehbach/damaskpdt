@@ -768,3 +768,80 @@ bool vtk_gp3d( vector<p3d> const & p,
 		return false;
 	}
 }
+
+
+bool vtk_aabb3d( vector<aabb3d> const & boxes,
+					vector<unsigned int> const & grainid,
+						const unsigned int increment)
+{
+	//MK::a key impracticality of the VTK file is that the number of geometrical entities has to be known a priori
+	//write to file
+	if (boxes.size() == grainid.size() ) { //write consistent datasets only
+		string fn = "DAMASKPDT.SimID." + to_string(Settings::SimID) +
+				".Incr." + to_string(increment) + ".DBScanResults.vtk";
+
+		ofstream vtk;
+		vtk.open( fn.c_str(),  ofstream::out | std::ofstream::trunc  );
+		if ( vtk.is_open() == true ) {
+			//construct header and point coordinates
+			vtk << "# vtk DataFile Version 2.0\n";
+			vtk << "DAMASKPDT DBScan grain box ensemble\n";
+			vtk << "ASCII\n";
+			vtk << "DATASET POLYDATA\n";
+			vtk << "\n";
+
+			vtk << "POINTS " << 8*boxes.size() << " double\n";
+			for ( auto it = boxes.begin(); it != boxes.end(); it++ ) {
+				//right-handed, anticlockwise corner cycling in the zplanes, zmin first
+				vtk << it->xmi << " " << it->ymi << " " << it->zmi << "\n";
+				vtk << it->xmx << " " << it->ymi << " " << it->zmi << "\n";
+				vtk << it->xmx << " " << it->ymx << " " << it->zmi << "\n";
+				vtk << it->xmi << " " << it->ymx << " " << it->zmi << "\n";
+
+				vtk << it->xmi << " " << it->ymi << " " << it->zmx << "\n";
+				vtk << it->xmx << " " << it->ymi << " " << it->zmx << "\n";
+				vtk << it->xmx << " " << it->ymx << " " << it->zmx << "\n";
+				vtk << it->xmi << " " << it->ymx << " " << it->zmx << "\n";
+			}
+			vtk << "\n";
+
+			vtk << "POLYGONS " << 6*boxes.size() << " " << 5*6*boxes.size() << "\n";
+			size_t i = 0;
+			for ( auto it = boxes.begin(); it != boxes.end(); it++ ) {
+				vtk << 4 << " " << i+0 << " " << i+1 << " " << i+2 << " " << i+3 << "\n";
+				vtk << 4 << " " << i+4 << " " << i+5 << " " << i+6 << " " << i+7 << "\n";
+				vtk << 4 << " " << i+0 << " " << i+1 << " " << i+5 << " " << i+4 << "\n";
+				vtk << 4 << " " << i+2 << " " << i+3 << " " << i+7 << " " << i+6 << "\n";
+				vtk << 4 << " " << i+0 << " " << i+4 << " " << i+7 << " " << i+3 << "\n";
+				vtk << 4 << " " << i+1 << " " << i+2 << " " << i+6 << " " << i+5 << "\n";
+				i += 8;
+			}
+
+			vtk << "\n";
+			vtk << "CELL_DATA " << 6*boxes.size() << "\n";
+			vtk << "SCALARS cell_scalars int 1" << "\n";
+			vtk << "LOOKUP_TABLE default" << "\n";
+			for ( i = 0; i < boxes.size(); i++ ) { //first boxes
+				vtk << grainid[i] << "\n";
+				vtk << grainid[i] << "\n";
+				vtk << grainid[i] << "\n";
+				vtk << grainid[i] << "\n";
+				vtk << grainid[i] << "\n";
+				vtk << grainid[i] << "\n";
+			}
+
+			vtk.flush();
+			vtk.close();
+			return true;
+		}
+		else {
+			cerr << "Unable to write integration point grid grain ID to VTK file" << "\n";
+			return false;
+		}
+	}
+	else {
+		cerr << "Input data containers have dissimilar number of entries" << "\n";
+		return false;
+	}
+}
+
