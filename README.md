@@ -1,6 +1,15 @@
 # damaskpdt
 Additional MPI/OpenMP parallelized post-processing functionalities for DAMASK (the Düsseldorf Advanced MAterial Simulation Kit) to characterize the spatial distribution of state variable values as a function of the distance of each material point to interfaces.
 
+Please find details to the purpose and practicality of the tool in 
+our respective publication: https://doi.org/10.1088/1361-651X/ab7f8c
+
+# Feel free to ask for assistance?
+https://www.bigmax.mpg.de/39151/bigmax-software-engineering-consultant  
+The tools were built back then for the old DAMASK dump file format (*.spectralOut). Modifications need to be implemented in order to make 
+it compatibel with the new HDF5 (*.h5) dump files since DAMASK (>v2.0.3).
+
+
 # Dependencies:
 C/C++ compiler, C2011 spec capable, e.g. GNU or Intel compiler  
 Message Passing Library (MPI), MPIThreadFunneled capable, e.g. Intel MPI, MPICH  
